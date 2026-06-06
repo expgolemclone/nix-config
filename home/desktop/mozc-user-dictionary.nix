@@ -207,6 +207,11 @@
       pos = "ABBREVIATION";
     }
     {
+      key = "でん";
+      value = "08069532839";
+      pos = "ABBREVIATION";
+    }
+    {
       key = "でんわばんごう";
       value = "07084421025";
       pos = "ABBREVIATION";
