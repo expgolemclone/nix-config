@@ -10,6 +10,7 @@
 		./yazi.nix
 		./cli.nix
 		./update-json.nix
+		./codex-cli-update-check.nix
 		./desktop
 	];
 
