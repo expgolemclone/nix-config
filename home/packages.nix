@@ -24,6 +24,7 @@ in
     parallel
     poppler-utils
     sox
+    time
     tree
     tty-clock
     unzip
