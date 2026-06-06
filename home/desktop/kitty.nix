@@ -12,6 +12,8 @@
     };
     settings = {
       allow_remote_control = "socket-only";
+      # Home Manager symlinked configs can make kitty's config watcher exhaust inotify watches.
+      auto_reload_config = -1;
       listen_on = "unix:/tmp/kitty-{kitty_pid}";
       background_opacity = "1.0";
       confirm_os_window_close = 0;
