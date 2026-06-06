@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HYPR_DIR="/run/user/$(id -u)/hypr"
+HYPRLAND_RUNNING=false
+
+# Detect Hyprland via socket directory instead of pgrep
+if [[ -d "$HYPR_DIR" ]]; then
+  if [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    instance="$HYPRLAND_INSTANCE_SIGNATURE"
+  else
+    instance=$(ls -t "$HYPR_DIR" 2>/dev/null | head -1)
+  fi
+
+  if [[ -n "$instance" && -S "$HYPR_DIR/$instance/.socket.sock" ]]; then
+    HYPRLAND_RUNNING=true
+    export HYPRLAND_INSTANCE_SIGNATURE="$instance"
+    echo "==> Hyprland running (instance: $instance)"
+  fi
+fi
+
+echo "==> Running nixos-rebuild switch (#nixos)..."
+if ! sudo nixos-rebuild switch --flake ~/nix-config#nixos; then
+  echo "ERROR: nixos-rebuild failed. Commit aborted."
+  exit 1
+fi
+echo "==> nixos-rebuild succeeded."
+
+# Check Hyprland config errors using hyprctl configerrors
+if $HYPRLAND_RUNNING; then
+  echo "==> Reloading Hyprland config..."
+  hyprctl reload
+
+  sleep 2
+
+  errors=$(hyprctl configerrors 2>&1 | sed '/^$/d')
+  if [[ -n "$errors" ]]; then
+    echo "ERROR: Hyprland config errors detected:"
+    echo "$errors"
+    echo "Commit aborted."
+    exit 1
+  fi
+  echo "==> Hyprland config check passed."
+else
+  echo "==> Hyprland not running, skipping config check."
+fi
+
+echo "==> All pre-commit checks passed."

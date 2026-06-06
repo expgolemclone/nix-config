@@ -1,0 +1,8 @@
+[mgr]
+ratio = [1, 2, 12]
+favorites_file = "/home/exp/.local/state/yazi/favorites.json"
+
+[preview]
+position = "top"
+max_width = 4096
+max_height = 4096
