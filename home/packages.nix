@@ -24,6 +24,7 @@ in
     parallel
     poppler-utils
     sox
+    sysstat
     time
     tree
     tty-clock
