@@ -38,6 +38,7 @@ in
     uv
 
     # Rust ツール
+    hyperfine
     rust-analyzer
     rustc
     cargo
