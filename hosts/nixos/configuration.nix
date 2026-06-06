@@ -252,6 +252,33 @@ in
     waydroid = prev.waydroid.override { withNftables = true; };
   })];
 
+  # --- Waydroid TTS 自動設定 ---
+  systemd.services.waydroid-tts-setup = {
+    description = "Configure Google TTS as default TTS engine in Waydroid";
+    after = [ "waydroid-container.service" ];
+    requires = [ "waydroid-container.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "waydroid-tts-setup" ''
+        for i in $(seq 1 30); do
+          if ${pkgs.waydroid}/bin/waydroid status 2>/dev/null | grep -q "RUNNING"; then
+            break
+          fi
+          sleep 2
+        done
+        sleep 5
+
+        ${pkgs.waydroid}/bin/waydroid shell settings put secure tts_default_synth com.google.android.tts
+        ${pkgs.waydroid}/bin/waydroid shell settings put secure tts_enabled_plugins com.google.android.tts
+        ${pkgs.waydroid}/bin/waydroid shell settings put system tts_default_lang jpn
+        ${pkgs.waydroid}/bin/waydroid shell settings put system tts_default_rate 100
+        ${pkgs.waydroid}/bin/waydroid shell settings put system tts_default_pitch 100
+      '';
+    };
+  };
+
   # --- ydotoold ---
   systemd.services.ydotoold = {
     description = "ydotool daemon";
