@@ -330,12 +330,32 @@ in
   nix.settings.auto-optimise-store = true;
   nix.settings.keep-derivations = true;
   nix.settings.keep-outputs = true;
-  # uv/pip が配置する ruff などの汎用 Linux ELF バイナリを NixOS 上で起動できるようにする。
+  # uv/pip が配置する ruff や Playwright Chromium などの汎用 Linux ELF バイナリを NixOS 上で起動できるようにする。
   programs.nix-ld = {
     enable = true;
     libraries = with pkgs; [
+      alsa-lib
+      at-spi2-core
+      cairo
+      cups
+      dbus
+      expat
+      glib
       glibc
+      libgbm
+      libx11
+      libxcb
+      libxcomposite
+      libxdamage
+      libxext
+      libxfixes
+      libxkbcommon
+      libxrandr
+      nspr
+      nss
+      pango
       stdenv.cc.cc.lib
+      systemd
       zlib
     ];
   };

@@ -82,7 +82,7 @@ NixOS + home-manager flake の構成図。安全運用ガイドは [CLAUDE.md][c
 
 ## NixOS ELF 互換
 
-- `hosts/nixos/configuration.nix` は `programs.nix-ld` を有効化し、`glibc`、`stdenv.cc.cc.lib`、`zlib` を互換ライブラリとして公開する。これにより、`uv` / `pip` が仮想環境へ配置する `ruff` などの汎用 Linux ELF バイナリが、`/lib64/ld-linux-x86-64.so.2` の `stub-ld` で停止せず実行できる。
+- `hosts/nixos/configuration.nix` は `programs.nix-ld` を有効化し、`glibc`、`stdenv.cc.cc.lib`、`zlib` に加えて GLib / NSS / X11 / デスクトップ周辺の互換ライブラリを公開する。これにより、`uv` / `pip` が仮想環境へ配置する `ruff` などの汎用 Linux ELF バイナリや、Playwright が `~/.cache/ms-playwright` へ配置する Chromium が、`/lib64/ld-linux-x86-64.so.2` の `stub-ld` や共有ライブラリ不足で停止せず実行できる。
 - Nixpkgs由来の開発ツールは引き続き `home/packages.nix` や各リポジトリの `flake.nix` から提供する。`nix-ld` はNixでビルドされていない補助バイナリを実行する互換層として扱う。
 
 ## Mozc ユーザ辞書
