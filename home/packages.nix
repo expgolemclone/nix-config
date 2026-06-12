@@ -18,6 +18,7 @@ in
     # CLI ツール
     bitwarden-cli
     bun
+    cloudflared
     codex
     file
     glab
