@@ -1,6 +1,13 @@
 { pkgs, ... }:
 
 let
+  pythonWithPackages = pkgs.python314.withPackages (pythonPackages:
+    with pythonPackages; [
+      openpyxl
+      pytest
+      requests
+    ]);
+
   vialWrapped = pkgs.writeShellScriptBin "vial" ''
     exec ${pkgs.vial}/bin/Vial "$@"
   '';
@@ -33,9 +40,7 @@ in
     yazi
 
     # Python ツール
-    python314
-    python314Packages.pytest
-    python314Packages.requests
+    pythonWithPackages
     ruff
     uv
 
