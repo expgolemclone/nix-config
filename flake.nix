@@ -22,6 +22,7 @@
     nixosConfigurations."nixos" = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
+        ./modules/external-hdd-backup.nix
         ./modules/gc.nix
         ./modules/stock-db-sql-api.nix
         ./hosts/nixos/configuration.nix
