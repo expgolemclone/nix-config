@@ -24,7 +24,6 @@
       modules = [
         ./modules/external-hdd-backup.nix
         ./modules/gc.nix
-        ./modules/stock-db-sql-api.nix
         ./hosts/nixos/configuration.nix
         home-manager.nixosModules.home-manager
         {
