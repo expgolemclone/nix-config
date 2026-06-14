@@ -69,8 +69,15 @@ let
     export PATH=${pkgs.hyprland}/bin:${pkgs.jq}/bin:${pkgs.kitty}/bin:${pkgs.coreutils}/bin:$PATH
     exec ${pkgs.bash}/bin/bash ${./hypr-session-restore.sh}
   '';
+
+  hypr-monitor-layout = pkgs.writeShellScriptBin "hypr-monitor-layout" ''
+    export PATH=${pkgs.hyprland}/bin:${pkgs.jq}/bin:${pkgs.socat}/bin:${pkgs.coreutils}/bin:$PATH
+    exec ${pkgs.bash}/bin/bash ${./hypr-monitor-layout.sh}
+  '';
 in
 {
+  home.packages = [ hypr-monitor-layout ];
+
   wayland.windowManager.hyprland = {
     enable = true;
     configType = "hyprlang";
@@ -78,7 +85,6 @@ in
 
       # --- モニター ---
       monitor = [
-        "eDP-1, disable"
         "desc:ASUSTek COMPUTER INC ASUS VA32U 0x00015DB6, 3840x2160@30, 0x0, 1.5, transform, 1"
         "desc:LG Electronics LG HDR 4K 601NTRLN4694, 3840x2160@30, 1440x0, 1.5, transform, 1"
         "desc:LG Electronics LG Ultra HD 0x00009D2A, 3840x2160@30, 2880x0, 1.5, transform, 3"
@@ -461,6 +467,20 @@ in
       ExecStart = "${pkgs.python3}/bin/python3 ${./hypr-dynamic-cursor.py}";
       Environment = "PATH=${pkgs.hyprland}/bin:${pkgs.grim}/bin:${pkgs.dconf}/bin:${pkgs.glib.bin}/bin:%h/.nix-profile/bin:/run/current-system/sw/bin";
       Restart = "on-failure";
+      RestartSec = "2";
+    };
+  };
+
+  systemd.user.services.hypr-monitor-layout = {
+    Unit = {
+      Description = "Switch Hyprland monitor layout for docked and laptop modes";
+      PartOf = [ "graphical-session.target" ];
+    };
+    Install.WantedBy = [ "graphical-session.target" ];
+    Service = {
+      Type = "simple";
+      ExecStart = "${hypr-monitor-layout}/bin/hypr-monitor-layout";
+      Restart = "always";
       RestartSec = "2";
     };
   };
