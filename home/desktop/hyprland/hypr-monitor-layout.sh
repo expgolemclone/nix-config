@@ -1,7 +1,7 @@
 set -euo pipefail
 
 LAPTOP_OUTPUT="eDP-1"
-LAPTOP_RULE="eDP-1, preferred, 0x0, 1"
+LAPTOP_RULE="eDP-1, preferred, 0x0, 1.5"
 
 EXTERNAL_DESCRIPTIONS=(
   "ASUSTek COMPUTER INC ASUS VA32U 0x00015DB6"
@@ -21,22 +21,6 @@ log() {
 
 hypr_json() {
   hyprctl "$@" -j 2>/dev/null
-}
-
-active_external_outputs() {
-  hypr_json monitors | jq -r \
-    --arg d1 "${EXTERNAL_DESCRIPTIONS[0]}" \
-    --arg d2 "${EXTERNAL_DESCRIPTIONS[1]}" \
-    --arg d3 "${EXTERNAL_DESCRIPTIONS[2]}" \
-    '
-      [
-        .[]
-        | select(.disabled == false)
-        | select(.description == $d1 or .description == $d2 or .description == $d3)
-      ]
-      | sort_by(.x, .y)
-      | .[].name
-    '
 }
 
 active_external_count() {
