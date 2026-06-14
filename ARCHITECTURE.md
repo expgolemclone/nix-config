@@ -24,8 +24,6 @@ NixOS + home-manager flake の構成図。安全運用ガイドは [CLAUDE.md][c
 ├── modules/
 │   └── gc.nix                  # nix-store の GC 設定
 ├── pkgs/                       # ローカル derivation（nixpkgs に無いものを callPackage 用）
-│   ├── claude-code/            # claude-code CLI のパッケージ定義
-│   └── moomoo/                 # moomoo パッケージ定義
 └── home/                       # home-manager（ユーザ単位の設定）
     ├── home.nix                # home-manager のエントリポイント (imports 集約)
     ├── shell.nix               # zsh / starship / shellAliases / 関数

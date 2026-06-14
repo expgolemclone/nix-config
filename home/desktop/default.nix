@@ -1,7 +1,6 @@
 { pkgs, ... }:
 
 let
-  moomoo = pkgs.callPackage ../../pkgs/moomoo { };
   hyprWindowInvertToggle = pkgs.writeShellScriptBin "hypr-window-invert-toggle" ''
     set -eu
 
@@ -195,8 +194,5 @@ in
       # セッション保存・復元
       (writeShellScriptBin "hypr-session-save" (builtins.readFile ./hyprland/hypr-session-save.sh))
       (writeShellScriptBin "hypr-session-restore" (builtins.readFile ./hyprland/hypr-session-restore.sh))
-    ]
-    ++ [
-      moomoo
     ];
 }
