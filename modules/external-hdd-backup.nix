@@ -72,8 +72,8 @@ let
     '';
   };
 
-  ssdHourlyBackup = pkgs.writeShellApplication {
-    name = "ssd-hourly-backup";
+  ssdBackup = pkgs.writeShellApplication {
+    name = "ssd-backup";
     runtimeInputs = with pkgs; [
       coreutils
       gnugrep
@@ -84,23 +84,44 @@ let
       set -euo pipefail
 
       fail() {
-        printf 'ssd-hourly-backup: %s\n' "$*" >&2
+        printf 'ssd-backup: %s\n' "$*" >&2
         exit 1
       }
+
+      force=0
+      if [ "$#" -gt 1 ]; then
+        fail "usage: ssd-backup [--force]"
+      elif [ "$#" -eq 1 ] && [ "$1" != "--force" ]; then
+        fail "unknown argument: $1"
+      elif [ "$#" -eq 1 ]; then
+        force=1
+      fi
 
       source_root_uuid="$(findmnt -n -o UUID /)"
       source_boot_uuid="$(findmnt -n -o UUID /boot)"
       [ "$source_root_uuid" = "${sourceRootUuid}" ] || fail "current / UUID is $source_root_uuid, expected ${sourceRootUuid}"
       [ "$source_boot_uuid" = "${sourceBootUuid}" ] || fail "current /boot UUID is $source_boot_uuid, expected ${sourceBootUuid}"
 
+      # Relies on serviceConfig.StateDirectory = "ssd-backup". Keep it a single
+      # entry: multiple StateDirectory values arrive colon-separated in $STATE_DIRECTORY.
+      stamp_dir="''${STATE_DIRECTORY:-/var/lib/ssd-backup}"
+      stamp_file="$stamp_dir/last-success"
+      if [ "$force" -ne 1 ] && [ -f "$stamp_file" ]; then
+        age=$(( $(date +%s) - $(date -r "$stamp_file" +%s) ))
+        if [ "$age" -lt 86400 ]; then
+          printf 'ssd-backup: skipping; last successful backup was %ss ago (< 86400s)\n' "$age"
+          exit 0
+        fi
+      fi
+
       backup_root="/dev/disk/by-uuid/${backupRootUuid}"
       backup_boot="/dev/disk/by-uuid/${backupBootUuid}"
       [ -b "$backup_root" ] || fail "$backup_root is not present"
       [ -b "$backup_boot" ] || fail "$backup_boot is not present"
 
-      lock="/run/ssd-hourly-backup.lock"
-      root_mount="/run/ssd-hourly-backup/root"
-      boot_mount="/run/ssd-hourly-backup/boot"
+      lock="/run/ssd-backup.lock"
+      root_mount="/run/ssd-backup/root"
+      boot_mount="/run/ssd-backup/boot"
 
       exec 9>"$lock"
       flock -n 9 || fail "another backup is already running"
@@ -131,6 +152,7 @@ let
         --exclude='/tmp/*' \
         --exclude='/media/*' \
         --exclude='/mnt/hdd-storage/*' \
+        --exclude='/var/lib/ssd-backup/*' \
         / "$root_mount"/
 
       mkdir -p "$root_mount/boot"
@@ -142,6 +164,10 @@ let
         --no-group \
         --info=stats2 \
         /boot/ "$boot_mount"/
+
+      mkdir -p "$stamp_dir"
+      touch "$stamp_file"
+      printf 'ssd-backup: success; stamp updated\n'
     '';
   };
 
@@ -261,7 +287,7 @@ in
 {
   environment.systemPackages = [
     backupHddInit
-    ssdHourlyBackup
+    ssdBackup
     restoreSsdFromHdd
   ];
 
@@ -279,20 +305,21 @@ in
     "d /mnt/hdd-storage 0755 root root -"
   ];
 
-  systemd.services.ssd-hourly-backup = {
-    description = "Mirror the internal SSD to the external backup HDD";
+  systemd.services.ssd-backup = {
+    description = "Mirror the internal SSD to the external backup HDD if older than 24h";
     after = [ "local-fs.target" ];
     serviceConfig = {
       Type = "oneshot";
-      ExecStart = "${ssdHourlyBackup}/bin/ssd-hourly-backup";
+      StateDirectory = "ssd-backup";
+      ExecStart = "${ssdBackup}/bin/ssd-backup";
       IOSchedulingClass = "best-effort";
       IOSchedulingPriority = 7;
       Nice = 10;
     };
   };
 
-  systemd.timers.ssd-hourly-backup = {
-    description = "Run the external HDD SSD mirror every hour";
+  systemd.timers.ssd-backup = {
+    description = "Hourly check; mirror SSD to external HDD only if last success is older than 24h";
     wantedBy = [ "timers.target" ];
     timerConfig = {
       OnCalendar = "hourly";
@@ -313,6 +340,6 @@ in
       options = [ "fmask=0022" "dmask=0022" ];
     };
 
-    systemd.timers.ssd-hourly-backup.wantedBy = lib.mkForce [ ];
+    systemd.timers.ssd-backup.wantedBy = lib.mkForce [ ];
   };
 }
