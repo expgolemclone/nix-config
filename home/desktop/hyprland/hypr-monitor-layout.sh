@@ -1,0 +1,166 @@
+set -euo pipefail
+
+LAPTOP_OUTPUT="eDP-1"
+LAPTOP_RULE="eDP-1, preferred, 0x0, 1"
+
+EXTERNAL_DESCRIPTIONS=(
+  "ASUSTek COMPUTER INC ASUS VA32U 0x00015DB6"
+  "LG Electronics LG HDR 4K 601NTRLN4694"
+  "LG Electronics LG Ultra HD 0x00009D2A"
+)
+
+EXTERNAL_RULES=(
+  "desc:ASUSTek COMPUTER INC ASUS VA32U 0x00015DB6, 3840x2160@60, 0x0, 1.5, transform, 1"
+  "desc:LG Electronics LG HDR 4K 601NTRLN4694, 3840x2160@60, 1440x0, 1.5, transform, 1"
+  "desc:LG Electronics LG Ultra HD 0x00009D2A, 3840x2160@60, 2880x0, 1.5, transform, 3"
+)
+
+log() {
+  printf 'hypr-monitor-layout: %s\n' "$*" >&2
+}
+
+hypr_json() {
+  hyprctl "$@" -j 2>/dev/null
+}
+
+known_external_count() {
+  jq -r \
+    --arg d1 "${EXTERNAL_DESCRIPTIONS[0]}" \
+    --arg d2 "${EXTERNAL_DESCRIPTIONS[1]}" \
+    --arg d3 "${EXTERNAL_DESCRIPTIONS[2]}" \
+    '[.[] | select(.description == $d1 or .description == $d2 or .description == $d3)] | length'
+}
+
+first_active_external() {
+  hypr_json monitors | jq -r \
+    --arg d1 "${EXTERNAL_DESCRIPTIONS[0]}" \
+    --arg d2 "${EXTERNAL_DESCRIPTIONS[1]}" \
+    --arg d3 "${EXTERNAL_DESCRIPTIONS[2]}" \
+    '
+      [
+        .[]
+        | select(.disabled == false)
+        | select(.description == $d1 or .description == $d2 or .description == $d3)
+      ]
+      | sort_by(.x, .y)
+      | .[0].name // empty
+    '
+}
+
+center_cursor_on() {
+  local output="$1"
+  local point x y
+
+  point="$(
+    hypr_json monitors | jq -r --arg output "$output" '
+      [
+        .[]
+        | select(.name == $output and .disabled == false)
+        | [(.x + (.width / 2 | floor)), (.y + (.height / 2 | floor))]
+        | @tsv
+      ][0] // empty
+    '
+  )"
+
+  [ -n "$point" ] || return 0
+
+  IFS="$(printf '\t')" read -r x y <<<"$point"
+  [ -n "$x" ] && [ -n "$y" ] || return 0
+
+  hyprctl dispatch movecursor "$x" "$y" >/dev/null 2>&1 || true
+}
+
+focus_output() {
+  local output="$1"
+
+  hyprctl dispatch focusmonitor "$output" >/dev/null 2>&1 || true
+  center_cursor_on "$output"
+}
+
+apply_laptop_mode() {
+  log "using laptop output"
+  hyprctl keyword monitor "$LAPTOP_RULE" >/dev/null
+  sleep 0.2
+  focus_output "$LAPTOP_OUTPUT"
+}
+
+apply_external_mode() {
+  local output
+
+  log "using external monitor layout"
+  for rule in "${EXTERNAL_RULES[@]}"; do
+    hyprctl keyword monitor "$rule" >/dev/null || log "failed to apply monitor rule: $rule"
+  done
+
+  sleep 0.2
+  output="$(first_active_external)"
+
+  if [ -z "$output" ]; then
+    log "known external monitor is connected, but no external output became active"
+    return 1
+  fi
+
+  hyprctl keyword monitor "$LAPTOP_OUTPUT, disable" >/dev/null
+  sleep 0.2
+  focus_output "$output"
+}
+
+apply_layout() {
+  local monitors external_count
+
+  monitors="$(hypr_json monitors all)"
+  external_count="$(printf '%s\n' "$monitors" | known_external_count)"
+
+  if [ "$external_count" -eq 0 ]; then
+    apply_laptop_mode
+  else
+    apply_external_mode
+  fi
+}
+
+wait_for_socket() {
+  local socket
+
+  while true; do
+    if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+      socket="${XDG_RUNTIME_DIR}/hypr/${HYPRLAND_INSTANCE_SIGNATURE}/.socket2.sock"
+      if [ -S "$socket" ]; then
+        printf '%s\n' "$socket"
+        return 0
+      fi
+    fi
+
+    for socket in "${XDG_RUNTIME_DIR}"/hypr/*/.socket2.sock; do
+      if [ -S "$socket" ]; then
+        printf '%s\n' "$socket"
+        return 0
+      fi
+    done
+
+    sleep 0.5
+  done
+}
+
+main() {
+  local socket socket_dir
+
+  : "${XDG_RUNTIME_DIR:=/run/user/$(id -u)}"
+  export XDG_RUNTIME_DIR
+
+  socket="$(wait_for_socket)"
+  socket_dir="${socket%/.socket2.sock}"
+  export HYPRLAND_INSTANCE_SIGNATURE="${socket_dir##*/}"
+
+  apply_layout
+
+  socat -U - UNIX-CONNECT:"$socket" | while IFS= read -r line; do
+    case "$line" in
+      monitoradded'>>'*|monitorremoved'>>'*|configreloaded*)
+        sleep 1
+        apply_layout || log "failed to apply monitor layout"
+        ;;
+    esac
+  done
+}
+
+main "$@"
