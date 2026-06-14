@@ -10,6 +10,7 @@
 		./yazi.nix
 		./cli.nix
 		./update-json.nix
+		./stock-db.nix
 		./codex-cli-update-check.nix
 		./desktop
 	];
@@ -45,6 +46,27 @@
 		run --silence systemctl --user stop ydotoold.service || true
 		run --silence systemctl --user reset-failed ydotoold.service || true
 		run rm -f "$HOME/.ydotool_socket"
+	'';
+
+	home.activation.cleanupLegacyStockDbUserUnits = lib.hm.dag.entryBetween [ "reloadSystemd" ] [ "writeBoundary" ] ''
+		verboseEcho "Removing legacy stock-db user units (now managed by home-manager)"
+		run --silence systemctl --user stop \
+			stock-db-price-refresh.service stock-db-price-refresh.timer \
+			stock-db-edinet-refresh.service stock-db-edinet-refresh.timer \
+			stock-db-downstream-refresh.service stock-db-downstream-refresh.timer || true
+		run --silence systemctl --user reset-failed \
+			stock-db-price-refresh.service stock-db-price-refresh.timer \
+			stock-db-edinet-refresh.service stock-db-edinet-refresh.timer \
+			stock-db-downstream-refresh.service stock-db-downstream-refresh.timer || true
+		run rm -f \
+			"$HOME/.config/systemd/user/stock-db-price-refresh.service" \
+			"$HOME/.config/systemd/user/stock-db-price-refresh.timer" \
+			"$HOME/.config/systemd/user/stock-db-edinet-refresh.service" \
+			"$HOME/.config/systemd/user/stock-db-edinet-refresh.timer" \
+			"$HOME/.config/systemd/user/stock-db-downstream-refresh.service" \
+			"$HOME/.config/systemd/user/stock-db-downstream-refresh.timer" \
+			"$HOME/.config/systemd/user/timers.target.wants/stock-db-price-refresh.timer" \
+			"$HOME/.config/systemd/user/timers.target.wants/stock-db-downstream-refresh.timer"
 	'';
 
 	# --- GTK ---
