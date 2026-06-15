@@ -23,8 +23,22 @@ hypr_json() {
   hyprctl "$@" -j 2>/dev/null
 }
 
+known_external_count() {
+  hypr_json monitors all | jq -r \
+    --arg d1 "${EXTERNAL_DESCRIPTIONS[0]}" \
+    --arg d2 "${EXTERNAL_DESCRIPTIONS[1]}" \
+    --arg d3 "${EXTERNAL_DESCRIPTIONS[2]}" \
+    '
+      [
+        .[]
+        | select(.description == $d1 or .description == $d2 or .description == $d3)
+      ]
+      | length
+    '
+}
+
 active_external_count() {
-  hypr_json monitors | jq -r \
+  hypr_json monitors all | jq -r \
     --arg d1 "${EXTERNAL_DESCRIPTIONS[0]}" \
     --arg d2 "${EXTERNAL_DESCRIPTIONS[1]}" \
     --arg d3 "${EXTERNAL_DESCRIPTIONS[2]}" \
@@ -39,7 +53,7 @@ active_external_count() {
 }
 
 first_active_external() {
-  hypr_json monitors | jq -r \
+  hypr_json monitors all | jq -r \
     --arg d1 "${EXTERNAL_DESCRIPTIONS[0]}" \
     --arg d2 "${EXTERNAL_DESCRIPTIONS[1]}" \
     --arg d3 "${EXTERNAL_DESCRIPTIONS[2]}" \
@@ -59,7 +73,7 @@ center_cursor_on() {
   local point x y
 
   point="$(
-    hypr_json monitors | jq -r --arg output "$output" '
+    hypr_json monitors all | jq -r --arg output "$output" '
       [
         .[]
         | select(.name == $output and .disabled == false)
@@ -84,12 +98,15 @@ focus_output() {
   center_cursor_on "$output"
 }
 
-wait_for_active_external() {
-  local output
+wait_for_active_externals() {
+  local expected_count="$1"
+  local active_count output
 
-  for _ in $(seq 1 10); do
-    output="$(first_active_external)"
-    if [ -n "$output" ]; then
+  for _ in $(seq 1 50); do
+    active_count="$(active_external_count)"
+    if [ "$active_count" -ge "$expected_count" ]; then
+      output="$(first_active_external)"
+      [ -n "$output" ] || return 1
       printf '%s\n' "$output"
       return 0
     fi
@@ -97,6 +114,8 @@ wait_for_active_external() {
     sleep 0.2
   done
 
+  active_count="$(active_external_count)"
+  log "only $active_count of $expected_count known external monitors are active"
   return 1
 }
 
@@ -108,6 +127,7 @@ apply_laptop_mode() {
 }
 
 apply_external_mode() {
+  local expected_count="$1"
   local output
 
   log "using external monitor layout"
@@ -115,10 +135,8 @@ apply_external_mode() {
     hyprctl keyword monitor "$rule" >/dev/null || log "failed to apply monitor rule: $rule"
   done
 
-  if ! output="$(wait_for_active_external)"; then
-    log "no active known external monitor; keeping laptop output enabled"
-    apply_laptop_mode
-    return 0
+  if ! output="$(wait_for_active_externals "$expected_count")"; then
+    return 1
   fi
 
   focus_output "$output"
@@ -130,12 +148,12 @@ apply_external_mode() {
 apply_layout() {
   local external_count
 
-  external_count="$(active_external_count)"
+  external_count="$(known_external_count)"
 
   if [ "$external_count" -eq 0 ]; then
     apply_laptop_mode
   else
-    apply_external_mode
+    apply_external_mode "$external_count"
   fi
 }
 
