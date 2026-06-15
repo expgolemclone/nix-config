@@ -187,6 +187,7 @@ in
       # GUI アプリ
       kdePackages.dolphin
       pavucontrol
+      zoom-us
 
       # ネットワーク / Bluetooth (systray)
       networkmanagerapplet
