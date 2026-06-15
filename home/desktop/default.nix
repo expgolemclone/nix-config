@@ -152,6 +152,7 @@ in
     enable = true;
     defaultApplications = {
       "text/html" = "google-chrome.desktop";
+      "video/mp4" = "mpv.desktop";
       "x-scheme-handler/http" = "google-chrome.desktop";
       "x-scheme-handler/https" = "google-chrome.desktop";
       "x-scheme-handler/about" = "google-chrome.desktop";
@@ -186,6 +187,7 @@ in
 
       # GUI アプリ
       kdePackages.dolphin
+      mpv
       pavucontrol
       zoom-us
 
