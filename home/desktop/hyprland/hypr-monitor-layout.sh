@@ -2,7 +2,7 @@ set -euo pipefail
 
 LAPTOP_OUTPUT="eDP-1"
 LAPTOP_RULE="eDP-1, preferred, 0x0, 1.5"
-DOCKED_LAPTOP_RULE="eDP-1, preferred, 2880x0, 1.5"
+DOCKED_HDMI_RULE="HDMI-A-1, preferred, 2880x0, 1.5"
 
 EXTERNAL_DESCRIPTIONS=(
   "ASUSTek COMPUTER INC ASUS VA32U 0x00015DB6"
@@ -130,13 +130,14 @@ apply_external_mode() {
   for rule in "${EXTERNAL_RULES[@]}"; do
     hyprctl keyword monitor "$rule" >/dev/null || log "failed to apply monitor rule: $rule"
   done
-  hyprctl keyword monitor "$DOCKED_LAPTOP_RULE" >/dev/null || log "failed to apply monitor rule: $DOCKED_LAPTOP_RULE"
+  hyprctl keyword monitor "$DOCKED_HDMI_RULE" >/dev/null || log "failed to apply monitor rule: $DOCKED_HDMI_RULE"
 
   if ! output="$(wait_for_active_externals "$expected_count")"; then
     return 1
   fi
 
   focus_output "$output"
+  hyprctl keyword monitor "$LAPTOP_OUTPUT, disable" >/dev/null
   sleep 0.2
   focus_output "$output"
 }
