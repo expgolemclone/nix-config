@@ -2,16 +2,17 @@ set -euo pipefail
 
 LAPTOP_OUTPUT="eDP-1"
 LAPTOP_RULE="eDP-1, preferred, 0x0, 1.5"
-DOCKED_HDMI_RULE="HDMI-A-1, preferred, 2880x0, 1.5"
 
 EXTERNAL_DESCRIPTIONS=(
   "ASUSTek COMPUTER INC ASUS VA32U 0x00015DB6"
   "LG Electronics LG HDR 4K 601NTRLN4694"
+  "LG Electronics LG Ultra HD 0x00009D2A"
 )
 
 EXTERNAL_RULES=(
-  "desc:ASUSTek COMPUTER INC ASUS VA32U 0x00015DB6, 3840x2160@30, 0x0, 1.5, transform, 1"
-  "desc:LG Electronics LG HDR 4K 601NTRLN4694, 3840x2160@30, 1440x0, 1.5, transform, 1"
+  "desc:ASUSTek COMPUTER INC ASUS VA32U 0x00015DB6, 3840x2160@60, 0x0, 1.5, transform, 1"
+  "desc:LG Electronics LG HDR 4K 601NTRLN4694, 3840x2160@60, 1440x0, 1.5, transform, 1"
+  "desc:LG Electronics LG Ultra HD 0x00009D2A, 3840x2160@60, 2880x0, 1.5, transform, 3"
 )
 
 log() {
@@ -22,42 +23,52 @@ hypr_json() {
   hyprctl "$@" -j 2>/dev/null
 }
 
+external_descriptions_json() {
+  printf '%s\n' "${EXTERNAL_DESCRIPTIONS[@]}" | jq -R . | jq -s .
+}
+
 known_external_count() {
+  local descriptions_json
+
+  descriptions_json="$(external_descriptions_json)"
   hypr_json monitors all | jq -r \
-    --arg d1 "${EXTERNAL_DESCRIPTIONS[0]}" \
-    --arg d2 "${EXTERNAL_DESCRIPTIONS[1]}" \
+    --argjson descriptions "$descriptions_json" \
     '
       [
         .[]
-        | select(.description == $d1 or .description == $d2)
+        | select(.description as $description | $descriptions | index($description))
       ]
       | length
     '
 }
 
 active_external_count() {
+  local descriptions_json
+
+  descriptions_json="$(external_descriptions_json)"
   hypr_json monitors all | jq -r \
-    --arg d1 "${EXTERNAL_DESCRIPTIONS[0]}" \
-    --arg d2 "${EXTERNAL_DESCRIPTIONS[1]}" \
+    --argjson descriptions "$descriptions_json" \
     '
       [
         .[]
         | select(.disabled == false)
-        | select(.description == $d1 or .description == $d2)
+        | select(.description as $description | $descriptions | index($description))
       ]
       | length
     '
 }
 
 first_active_external() {
+  local descriptions_json
+
+  descriptions_json="$(external_descriptions_json)"
   hypr_json monitors all | jq -r \
-    --arg d1 "${EXTERNAL_DESCRIPTIONS[0]}" \
-    --arg d2 "${EXTERNAL_DESCRIPTIONS[1]}" \
+    --argjson descriptions "$descriptions_json" \
     '
       [
         .[]
         | select(.disabled == false)
-        | select(.description == $d1 or .description == $d2)
+        | select(.description as $description | $descriptions | index($description))
       ]
       | sort_by(.x, .y)
       | .[0].name // empty
@@ -130,7 +141,6 @@ apply_external_mode() {
   for rule in "${EXTERNAL_RULES[@]}"; do
     hyprctl keyword monitor "$rule" >/dev/null || log "failed to apply monitor rule: $rule"
   done
-  hyprctl keyword monitor "$DOCKED_HDMI_RULE" >/dev/null || log "failed to apply monitor rule: $DOCKED_HDMI_RULE"
 
   if ! output="$(wait_for_active_externals "$expected_count")"; then
     return 1
