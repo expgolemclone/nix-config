@@ -2,17 +2,16 @@ set -euo pipefail
 
 LAPTOP_OUTPUT="eDP-1"
 LAPTOP_RULE="eDP-1, preferred, 0x0, 1.5"
+DOCKED_LAPTOP_RULE="eDP-1, preferred, 2880x0, 1.5"
 
 EXTERNAL_DESCRIPTIONS=(
   "ASUSTek COMPUTER INC ASUS VA32U 0x00015DB6"
   "LG Electronics LG HDR 4K 601NTRLN4694"
-  "LG Electronics LG Ultra HD 0x00009D2A"
 )
 
 EXTERNAL_RULES=(
   "desc:ASUSTek COMPUTER INC ASUS VA32U 0x00015DB6, 3840x2160@30, 0x0, 1.5, transform, 1"
   "desc:LG Electronics LG HDR 4K 601NTRLN4694, 3840x2160@30, 1440x0, 1.5, transform, 1"
-  "desc:LG Electronics LG Ultra HD 0x00009D2A, 3840x2160@30, 2880x0, 1.5, transform, 3"
 )
 
 log() {
@@ -27,11 +26,10 @@ known_external_count() {
   hypr_json monitors all | jq -r \
     --arg d1 "${EXTERNAL_DESCRIPTIONS[0]}" \
     --arg d2 "${EXTERNAL_DESCRIPTIONS[1]}" \
-    --arg d3 "${EXTERNAL_DESCRIPTIONS[2]}" \
     '
       [
         .[]
-        | select(.description == $d1 or .description == $d2 or .description == $d3)
+        | select(.description == $d1 or .description == $d2)
       ]
       | length
     '
@@ -41,12 +39,11 @@ active_external_count() {
   hypr_json monitors all | jq -r \
     --arg d1 "${EXTERNAL_DESCRIPTIONS[0]}" \
     --arg d2 "${EXTERNAL_DESCRIPTIONS[1]}" \
-    --arg d3 "${EXTERNAL_DESCRIPTIONS[2]}" \
     '
       [
         .[]
         | select(.disabled == false)
-        | select(.description == $d1 or .description == $d2 or .description == $d3)
+        | select(.description == $d1 or .description == $d2)
       ]
       | length
     '
@@ -56,12 +53,11 @@ first_active_external() {
   hypr_json monitors all | jq -r \
     --arg d1 "${EXTERNAL_DESCRIPTIONS[0]}" \
     --arg d2 "${EXTERNAL_DESCRIPTIONS[1]}" \
-    --arg d3 "${EXTERNAL_DESCRIPTIONS[2]}" \
     '
       [
         .[]
         | select(.disabled == false)
-        | select(.description == $d1 or .description == $d2 or .description == $d3)
+        | select(.description == $d1 or .description == $d2)
       ]
       | sort_by(.x, .y)
       | .[0].name // empty
@@ -134,13 +130,13 @@ apply_external_mode() {
   for rule in "${EXTERNAL_RULES[@]}"; do
     hyprctl keyword monitor "$rule" >/dev/null || log "failed to apply monitor rule: $rule"
   done
+  hyprctl keyword monitor "$DOCKED_LAPTOP_RULE" >/dev/null || log "failed to apply monitor rule: $DOCKED_LAPTOP_RULE"
 
   if ! output="$(wait_for_active_externals "$expected_count")"; then
     return 1
   fi
 
   focus_output "$output"
-  hyprctl keyword monitor "$LAPTOP_OUTPUT, disable" >/dev/null
   sleep 0.2
   focus_output "$output"
 }
