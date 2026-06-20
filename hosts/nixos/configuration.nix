@@ -145,7 +145,25 @@ in
     alsa.support32Bit = true;
     pulse.enable = true;
     jack.enable = true;
-    wireplumber.enable = true;
+    wireplumber = {
+      enable = true;
+      extraConfig."10-audio-priority" = {
+        "monitor.alsa.rules" = [
+          {
+            matches = [
+              { "node.name" = "~alsa_output.usb-C-Media_Electronics_Inc._USB_Audio_Device-00.*"; }
+              { "node.name" = "~alsa_input.usb-C-Media_Electronics_Inc._USB_Audio_Device-00.*"; }
+            ];
+            actions = {
+              "update-props" = {
+                "priority.driver" = 100;
+                "priority.session" = 100;
+              };
+            };
+          }
+        ];
+      };
+    };
   };
   security.rtkit.enable = true;
 
