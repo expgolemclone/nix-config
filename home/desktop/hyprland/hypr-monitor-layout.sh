@@ -27,11 +27,11 @@ external_descriptions_json() {
   printf '%s\n' "${EXTERNAL_DESCRIPTIONS[@]}" | jq -R . | jq -s .
 }
 
-known_external_count() {
+active_external_count() {
   local descriptions_json
 
   descriptions_json="$(external_descriptions_json)"
-  hypr_json monitors all | jq -r \
+  hypr_json monitors | jq -r \
     --argjson descriptions "$descriptions_json" \
     '
       [
@@ -42,19 +42,18 @@ known_external_count() {
     '
 }
 
-active_external_count() {
+active_external_descriptions_json() {
   local descriptions_json
 
   descriptions_json="$(external_descriptions_json)"
-  hypr_json monitors all | jq -r \
+  hypr_json monitors | jq -r \
     --argjson descriptions "$descriptions_json" \
     '
       [
         .[]
-        | select(.disabled == false)
         | select(.description as $description | $descriptions | index($description))
+        | .description
       ]
-      | length
     '
 }
 
@@ -62,12 +61,11 @@ first_active_external() {
   local descriptions_json
 
   descriptions_json="$(external_descriptions_json)"
-  hypr_json monitors all | jq -r \
+  hypr_json monitors | jq -r \
     --argjson descriptions "$descriptions_json" \
     '
       [
         .[]
-        | select(.disabled == false)
         | select(.description as $description | $descriptions | index($description))
       ]
       | sort_by(.x, .y)
@@ -80,10 +78,10 @@ center_cursor_on() {
   local point x y
 
   point="$(
-    hypr_json monitors all | jq -r --arg output "$output" '
+    hypr_json monitors | jq -r --arg output "$output" '
       [
         .[]
-        | select(.name == $output and .disabled == false)
+        | select(.name == $output)
         | [(.x + (.width / 2 | floor)), (.y + (.height / 2 | floor))]
         | @tsv
       ][0] // empty
@@ -126,6 +124,22 @@ wait_for_active_externals() {
   return 1
 }
 
+apply_active_external_rules() {
+  local active_descriptions_json
+  local applied=0
+
+  active_descriptions_json="$(active_external_descriptions_json)"
+
+  for index in "${!EXTERNAL_DESCRIPTIONS[@]}"; do
+    if jq -e --arg description "${EXTERNAL_DESCRIPTIONS[$index]}" 'index($description)' >/dev/null <<<"$active_descriptions_json"; then
+      hyprctl keyword monitor "${EXTERNAL_RULES[$index]}" >/dev/null
+      applied=$((applied + 1))
+    fi
+  done
+
+  printf '%s\n' "$applied"
+}
+
 apply_laptop_mode() {
   log "using laptop output"
   hyprctl keyword monitor "$LAPTOP_RULE" >/dev/null
@@ -135,12 +149,15 @@ apply_laptop_mode() {
 
 apply_external_mode() {
   local expected_count="$1"
+  local applied_count
   local output
 
   log "using external monitor layout"
-  for rule in "${EXTERNAL_RULES[@]}"; do
-    hyprctl keyword monitor "$rule" >/dev/null || log "failed to apply monitor rule: $rule"
-  done
+  applied_count="$(apply_active_external_rules)"
+  if [ "$applied_count" -ne "$expected_count" ]; then
+    log "only applied $applied_count of $expected_count active external monitor rules"
+    return 1
+  fi
 
   if ! output="$(wait_for_active_externals "$expected_count")"; then
     return 1
@@ -155,7 +172,7 @@ apply_external_mode() {
 apply_layout() {
   local external_count
 
-  external_count="$(known_external_count)"
+  external_count="$(active_external_count)"
 
   if [ "$external_count" -eq 0 ]; then
     apply_laptop_mode

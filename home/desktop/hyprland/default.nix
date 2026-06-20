@@ -85,10 +85,7 @@ in
 
       # --- モニター ---
       monitor = [
-        "eDP-1, disable"
-        "desc:ASUSTek COMPUTER INC ASUS VA32U 0x00015DB6, 3840x2160@60, 0x0, 1.5, transform, 1"
-        "desc:LG Electronics LG HDR 4K 601NTRLN4694, 3840x2160@60, 1440x0, 1.5, transform, 1"
-        "desc:LG Electronics LG Ultra HD 0x00009D2A, 3840x2160@60, 2880x0, 1.5, transform, 3"
+        "eDP-1, preferred, 0x0, 1.5"
       ];
 
       # --- 環境変数 ---
