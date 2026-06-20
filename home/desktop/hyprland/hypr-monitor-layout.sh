@@ -189,26 +189,15 @@ wait_for_socket() {
 
 watch_socket() {
   local socket="$1"
-  local line status
+  local line
 
-  while true; do
-    if IFS= read -r -t 30 line; then
-      case "$line" in
-        monitoradded'>>'*|monitorremoved'>>'*|configreloaded*)
-          sleep 1
-          apply_layout || log "failed to apply monitor layout"
-          ;;
-      esac
-      continue
-    fi
-
-    status=$?
-    if [ "$status" -gt 128 ]; then
-      apply_layout || log "failed to apply monitor layout"
-      continue
-    fi
-
-    break
+  while IFS= read -r line; do
+    case "$line" in
+      monitoradded'>>'*|monitorremoved'>>'*|configreloaded*)
+        sleep 1
+        apply_layout || log "failed to apply monitor layout"
+        ;;
+    esac
   done < <(socat -U - UNIX-CONNECT:"$socket")
 }
 
