@@ -94,6 +94,7 @@ in
     0.0.0.0 x.com www.x.com twitter.com www.twitter.com mobile.twitter.com t.co
     0.0.0.0 tiktok.com www.tiktok.com
     0.0.0.0 instagram.com www.instagram.com
+    0.0.0.0 reddit.com www.reddit.com old.reddit.com new.reddit.com m.reddit.com np.reddit.com redd.it www.redd.it
   '';
   # 四季報オンラインの誌面画像に必要（ルーター DNS がブロックするため上書き）
   # 起動時に外部 DNS (1.1.1.1) で解決して /etc/hosts を動的更新
