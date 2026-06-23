@@ -9,6 +9,8 @@ EXTERNAL_DESCRIPTIONS=(
   "LG Electronics LG Ultra HD 0x00009D2A"
 )
 
+# j5create JCD554経由では, 3台4K@30を安定設定とする.
+# LG Ultra HDは右端の縦置き反対向きなので, transform, 3から変えない.
 EXTERNAL_RULES=(
   "desc:ASUSTek COMPUTER INC ASUS VA32U 0x00015DB6, 3840x2160@30, 0x0, 1.5, transform, 1"
   "desc:LG Electronics LG HDR 4K 601NTRLN4694, 3840x2160@30, 1440x0, 1.5, transform, 1"
