@@ -2,6 +2,10 @@
 
 `exp` 用の NixOS / Home Manager 設定リポジトリ。過去に認証設定を壊したまま `nixos-rebuild switch` を実行してログイン不能になったため、この README には最小限の安全ルールだけを残す。
 
+## 目立つ修正
+
+- **[26aa4ce](https://github.com/expgolemclone/nix-config/commit/26aa4ce8da94a7e2d7c2f5bbe78af44727eff813)**: j5create JCD554 経由の外部 3 台を 4K 30fps, 縦, 縦, 縦(反対向き) に固定し、LG の横向き / 低解像度化を失敗扱いにする。
+
 ## 最重要
 
 - branch は切らない。`master` で作業する。
