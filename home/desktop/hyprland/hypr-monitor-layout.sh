@@ -336,8 +336,6 @@ apply_external_mode() {
 
 apply_layout() {
   local external_count
-  local output
-
   if ! external_count="$(active_external_count)"; then
     return 1
   fi
@@ -345,14 +343,8 @@ apply_layout() {
   if [ "$external_count" -eq 0 ]; then
     apply_laptop_mode
   elif [ "$external_count" -lt "$REQUIRED_EXTERNAL_COUNT" ]; then
-    if output="$(wait_for_active_externals "$REQUIRED_EXTERNAL_COUNT")"; then
-      apply_external_mode "$REQUIRED_EXTERNAL_COUNT"
-      focus_output "$output"
-    else
-      log "not applying external layout until all $REQUIRED_EXTERNAL_COUNT known external monitors are active"
-      apply_laptop_mode
-      return 1
-    fi
+    log "not applying external layout until all $REQUIRED_EXTERNAL_COUNT known external monitors are active"
+    return 1
   else
     apply_external_mode "$REQUIRED_EXTERNAL_COUNT"
   fi
