@@ -67,6 +67,9 @@ STUB
   nix_eval --raw \
     "$repo#nixosConfigurations.nixos.config.system.build.toplevel.drvPath" >/dev/null
   printf 'Nix recovery checks passed\n'
+
+  rm -rf "$stub"
+  trap - EXIT
 }
 
 case "$mode" in
