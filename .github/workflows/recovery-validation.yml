@@ -59,13 +59,13 @@ jobs:
         id: static
         if: always()
         continue-on-error: true
-        run: tests/verify-recovery.sh static .
+        run: bash tests/verify-recovery.sh static .
 
       - name: Nix configuration evaluation
         id: nix_eval
         if: always()
         continue-on-error: true
-        run: tests/verify-recovery.sh nix .
+        run: bash tests/verify-recovery.sh nix .
 
       - name: Record validation outcomes
         if: always()
