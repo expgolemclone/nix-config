@@ -84,6 +84,7 @@ STUB
   for module in xhci_pci sd_mod uas usb_storage; do
     assert_json_contains "initrd-module-$module" "$modules" "$module"
   done
+  assert_json_contains root-initrd-mount "$root_options" 'x-initrd.mount'
   assert_json_contains root-device-timeout "$root_options" 'x-systemd.device-timeout=5min'
 
   drv_path="$(nix_eval --raw \
