@@ -2,7 +2,7 @@
 
 {
   specialisation.external-hdd-backup.configuration = {
-    # The backup root lives behind a USB-SATA bridge.  Make the complete
+    # The backup root lives behind a USB-SATA bridge. Make the complete
     # storage path available before udev-based coldplug and force it to load.
     boot.initrd.kernelModules = [
       "xhci_pci"
