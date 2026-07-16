@@ -147,10 +147,7 @@ build_initrd_checks() {
   )"
   [ -n "$initrd_drv" ] || { echo 'FAIL initialRamdisk drvPath is empty' >&2; return 1; }
 
-  initrd_out="$(
-    nix --extra-experimental-features 'nix-command flakes' build \
-      --no-link --print-out-paths "$initrd_drv"
-  )"
+  initrd_out="$(nix-store --realise "$initrd_drv")"
   [ -f "$initrd_out" ] || { printf 'FAIL built initrd is not a file: %s\n' "$initrd_out" >&2; return 1; }
   printf 'PASS built-initrd: %s\n' "$initrd_out"
 
