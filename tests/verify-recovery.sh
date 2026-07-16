@@ -132,8 +132,10 @@ build_initrd_checks() {
   local config
   local initrd_drv
   local initrd_out
+  local initrd_image
   local nixpkgs_rev
   local listing="ci-initrd-files.txt"
+  local -a candidates=()
 
   stub="$(mktemp -d)"
   make_stub "$stub"
@@ -148,14 +150,28 @@ build_initrd_checks() {
   [ -n "$initrd_drv" ] || { echo 'FAIL initialRamdisk drvPath is empty' >&2; return 1; }
 
   initrd_out="$(nix-store --realise "$initrd_drv")"
-  [ -f "$initrd_out" ] || { printf 'FAIL built initrd is not a file: %s\n' "$initrd_out" >&2; return 1; }
-  printf 'PASS built-initrd: %s\n' "$initrd_out"
+  if [ -f "$initrd_out" ]; then
+    initrd_image="$initrd_out"
+  elif [ -d "$initrd_out" ]; then
+    mapfile -t candidates < <(find "$initrd_out" -maxdepth 2 -type f -name 'initrd*' -print | sort)
+    [ "${#candidates[@]}" -eq 1 ] || {
+      printf 'FAIL expected one initrd image under %s, found %s\n' "$initrd_out" "${#candidates[@]}" >&2
+      find "$initrd_out" -maxdepth 2 -printf '%y %p\n' >&2
+      return 1
+    }
+    initrd_image="${candidates[0]}"
+  else
+    printf 'FAIL realised initrd output has unexpected type: %s\n' "$initrd_out" >&2
+    return 1
+  fi
+  printf 'PASS built-initrd-output: %s\n' "$initrd_out"
+  printf 'PASS built-initrd-image: %s\n' "$initrd_image"
 
   nixpkgs_rev="$(sed -n 's/^NIXPKGS_REV="\([0-9a-f]\{40\}\)"$/\1/p' "$script")"
   [ -n "$nixpkgs_rev" ] || { echo 'FAIL NIXPKGS_REV is not pinned' >&2; return 1; }
   nix --extra-experimental-features 'nix-command flakes' \
     shell "github:NixOS/nixpkgs/$nixpkgs_rev#dracut" \
-    --command lsinitrd "$initrd_out" > "$listing"
+    --command lsinitrd "$initrd_image" > "$listing"
 
   for module_spec in \
     'xhci_pci:xhci[-_]pci\.ko' \
@@ -170,7 +186,7 @@ build_initrd_checks() {
     printf 'PASS built-initrd-module: %s\n' "$module_name"
   done
 
-  sha256sum "$initrd_out" | tee ci-initrd-sha256.txt
+  sha256sum "$initrd_image" | tee ci-initrd-sha256.txt
   rm -rf "$stub"
   printf 'built initrd inspection passed\n'
 }
