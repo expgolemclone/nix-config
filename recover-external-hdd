@@ -11,6 +11,7 @@ UPLOAD_REPO="expgolemclone/nix-config"
 UPLOAD_PR="20"
 EXPECTED_GITHUB_LOGIN="expgolemclone"
 NIXPKGS_REV="9ae611a455b90cf061d8f332b977e387bda8e1ca"
+VALIDATED_CONFIG_REV="718123043cefea1c3bd2410a92236d847016a97d"
 GH_PACKAGE="github:NixOS/nixpkgs/$NIXPKGS_REV#gh"
 DRACUT_PACKAGE="github:NixOS/nixpkgs/$NIXPKGS_REV#dracut"
 YAZI_SOURCE="$TARGET/home/exp/projects/yazi_fork"
@@ -24,7 +25,7 @@ START_REPORT="$WORK_DIR/start.md"
 INITRD_LIST="$WORK_DIR/initrd-files.txt"
 FAILED_LINE=""
 REPORTING_READY=0
-CONFIG_REV=""
+CONFIG_REV="$VALIDATED_CONFIG_REV"
 YAZI_NAR_HASH=""
 SYSTEM_PATH=""
 SPEC_SYSTEM=""
@@ -262,9 +263,10 @@ run_gh api "repos/$UPLOAD_REPO/issues/$UPLOAD_PR" --jq .number >/dev/null \
   || fail "PR #$UPLOAD_PR is not readable with the saved GitHub authentication"
 pass report-target "$UPLOAD_REPO PR #$UPLOAD_PR is accessible"
 
-CONFIG_REV="$(run_gh api "repos/$UPLOAD_REPO/commits/main" --jq .sha)" \
-  || fail 'could not resolve the immutable main revision'
-[[ "$CONFIG_REV" =~ ^[0-9a-f]{40}$ ]] || fail "invalid main revision returned: $CONFIG_REV"
+[[ "$CONFIG_REV" =~ ^[0-9a-f]{40}$ ]] || fail "invalid validated config revision: $CONFIG_REV"
+validated_config_sha="$(run_gh api "repos/$UPLOAD_REPO/commits/$CONFIG_REV" --jq .sha)" \
+  || fail 'could not resolve the validated configuration revision'
+require_equal validated-config-revision "$validated_config_sha" "$CONFIG_REV"
 FLAKE_REF="github:$UPLOAD_REPO/$CONFIG_REV"
 SYSTEM_INSTALLABLE="$FLAKE_REF#nixosConfigurations.nixos.config.system.build.toplevel"
 pass config-revision "$CONFIG_REV"
