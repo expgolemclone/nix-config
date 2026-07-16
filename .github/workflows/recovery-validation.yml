@@ -67,16 +67,7 @@ jobs:
         continue-on-error: true
         run: tests/verify-recovery.sh nix .
 
-      - name: Upload diagnostics
-        if: always()
-        uses: actions/upload-artifact@v6.0.0
-        with:
-          name: recovery-validation-${{ github.run_id }}
-          path: shellcheck.txt
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Enforce validation results
+      - name: Record validation outcomes
         if: always()
         env:
           SYNTAX: ${{ steps.syntax.outcome }}
@@ -85,8 +76,24 @@ jobs:
           NIX_EVAL: ${{ steps.nix_eval.outcome }}
         run: |
           printf 'syntax=%s\nshellcheck=%s\nstatic=%s\nnix-eval=%s\n' \
-            "$SYNTAX" "$SHELLCHECK" "$STATIC" "$NIX_EVAL"
-          test "$SYNTAX" = success
-          test "$SHELLCHECK" = success
-          test "$STATIC" = success
-          test "$NIX_EVAL" = success
+            "$SYNTAX" "$SHELLCHECK" "$STATIC" "$NIX_EVAL" \
+            | tee validation-outcomes.txt
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: recovery-validation-${{ github.run_id }}
+          path: |
+            shellcheck.txt
+            validation-outcomes.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce validation results
+        if: always()
+        run: |
+          grep -Fx 'syntax=success' validation-outcomes.txt
+          grep -Fx 'shellcheck=success' validation-outcomes.txt
+          grep -Fx 'static=success' validation-outcomes.txt
+          grep -Fx 'nix-eval=success' validation-outcomes.txt
