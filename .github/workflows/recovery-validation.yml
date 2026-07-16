@@ -62,7 +62,7 @@ jobs:
         run: tests/verify-recovery.sh static .
 
       - name: Nix configuration evaluation
-        id: nix-eval
+        id: nix_eval
         if: always()
         continue-on-error: true
         run: tests/verify-recovery.sh nix .
@@ -82,7 +82,7 @@ jobs:
           SYNTAX: ${{ steps.syntax.outcome }}
           SHELLCHECK: ${{ steps.shellcheck.outcome }}
           STATIC: ${{ steps.static.outcome }}
-          NIX_EVAL: ${{ steps.nix-eval.outcome }}
+          NIX_EVAL: ${{ steps.nix_eval.outcome }}
         run: |
           printf 'syntax=%s\nshellcheck=%s\nstatic=%s\nnix-eval=%s\n' \
             "$SYNTAX" "$SHELLCHECK" "$STATIC" "$NIX_EVAL"
