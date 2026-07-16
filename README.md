@@ -36,3 +36,13 @@
 1. まず前の generation で起動する。
 2. それでも入れなければ boot menu から `systemd.unit=rescue.target` を付けて rescue に入る。
 3. `passwd exp` で復旧し、設定を直してから `nixos-rebuild switch --flake .#nixos` をやり直す。
+
+### 外付けHDDのinitrdをライブUSBから再生成
+
+ライブUSBをUEFIモードで起動し、ネットワーク接続後に次の1行を実行する。
+
+```console
+curl -fsSL https://raw.githubusercontent.com/expgolemclone/nix-config/main/recover-external-hdd | sudo bash
+```
+
+スクリプトは外付けHDDのUUID・LABELを検証してからマウントし、`external-hdd-backup`を含む新しいシステムとブートエントリを生成する。フォーマット、パーティション変更、`fsck -y`は実行しない。

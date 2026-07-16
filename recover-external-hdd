@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+ROOT_UUID="741133ee-fa8d-4674-8809-2735e197acae"
+BOOT_UUID="BACA-0001"
+ROOT_LABEL="SSD_BACKUP"
+BOOT_LABEL="BACKUPBOOT"
+TARGET="/mnt"
+FLAKE="github:expgolemclone/nix-config/main#nixos"
+YAZI_SOURCE="$TARGET/home/exp/projects/yazi_fork"
+LOG="/tmp/external-hdd-recovery.log"
+
+exec > >(tee -a "$LOG") 2>&1
+trap 'status=$?; printf "\nRecovery failed at line %s (status %s). Log: %s\n" "$LINENO" "$status" "$LOG" >&2; exit "$status"' ERR
+
+fail() {
+  printf 'ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+[ "${EUID:-$(id -u)}" -eq 0 ] || fail "run this script as root"
+[ -d /sys/firmware/efi ] || fail "the installer USB must be booted in UEFI mode"
+
+for command in blkid findmnt mount mountpoint nixos-install readlink sync; do
+  command -v "$command" >/dev/null || fail "missing command: $command"
+done
+
+root_dev="/dev/disk/by-uuid/$ROOT_UUID"
+boot_dev="/dev/disk/by-uuid/$BOOT_UUID"
+[ -b "$root_dev" ] || fail "backup root UUID $ROOT_UUID is not present"
+[ -b "$boot_dev" ] || fail "backup boot UUID $BOOT_UUID is not present"
+
+[ "$(blkid -s TYPE -o value "$root_dev")" = ext4 ] || fail "backup root is not ext4"
+[ "$(blkid -s LABEL -o value "$root_dev")" = "$ROOT_LABEL" ] || fail "backup root label mismatch"
+[ "$(blkid -s TYPE -o value "$boot_dev")" = vfat ] || fail "backup boot is not vfat"
+[ "$(blkid -s LABEL -o value "$boot_dev")" = "$BOOT_LABEL" ] || fail "backup boot label mismatch"
+
+same_device() {
+  [ "$(readlink -f "$1")" = "$(readlink -f "$2")" ]
+}
+
+mkdir -p "$TARGET"
+if mountpoint -q "$TARGET"; then
+  mounted_root="$(findmnt -n -o SOURCE --target "$TARGET")"
+  same_device "$mounted_root" "$root_dev" || fail "$TARGET is mounted from $mounted_root, not the backup root"
+  mount -o remount,rw "$TARGET"
+else
+  mount -o rw "$root_dev" "$TARGET"
+fi
+
+mkdir -p "$TARGET/boot"
+if mountpoint -q "$TARGET/boot"; then
+  mounted_boot="$(findmnt -n -o SOURCE --target "$TARGET/boot")"
+  same_device "$mounted_boot" "$boot_dev" || fail "$TARGET/boot is mounted from $mounted_boot, not the backup ESP"
+  mount -o remount,rw "$TARGET/boot"
+else
+  mount -t vfat -o rw "$boot_dev" "$TARGET/boot"
+fi
+
+[ -f "$YAZI_SOURCE/flake.nix" ] || fail "missing backup copy of $YAZI_SOURCE"
+
+printf '\nTarget verified:\n'
+printf '  root: %s (%s)\n' "$root_dev" "$ROOT_LABEL"
+printf '  boot: %s (%s)\n' "$boot_dev" "$BOOT_LABEL"
+printf '  source: %s\n\n' "$FLAKE"
+
+export NIX_CONFIG="${NIX_CONFIG:-}"$'\nexperimental-features = nix-command flakes\naccept-flake-config = true'
+
+nixos-install \
+  --root "$TARGET" \
+  --flake "$FLAKE" \
+  --override-input yazi-fork "path:$YAZI_SOURCE" \
+  --no-write-lock-file \
+  --no-channel-copy \
+  --no-root-passwd
+
+sync
+
+entries=("$TARGET"/boot/loader/entries/*external-hdd-backup*.conf)
+[ -e "${entries[0]:-}" ] || fail "installation completed but no external-hdd-backup boot entry was found"
+
+printf '\nRecovery completed successfully.\n'
+printf 'Reboot, select the BUFFALO HDD, then choose the newest external-hdd-backup entry.\n'
+printf 'Log: %s\n' "$LOG"
