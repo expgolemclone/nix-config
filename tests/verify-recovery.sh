@@ -46,6 +46,7 @@ static_checks() {
   local initrd_hash_line
   local esp_rw_line
   local install_line
+  local validated_rev
 
   if grep -En '(^|[^[:alnum:]_])(mkfs|wipefs|fdisk|sfdisk|parted|fsck|badblocks)([^[:alnum:]_]|$)' "$script"; then
     echo 'destructive disk command found in recovery script' >&2
@@ -56,6 +57,14 @@ static_checks() {
   grep -Fq 'initrd-module-' "$script"
   grep -Fq 'installed-initrd-hash' "$script"
   grep -Fq 'github-write-proof' "$script"
+
+  validated_rev="$(sed -n 's/^VALIDATED_CONFIG_REV="\([0-9a-f]\{40\}\)"$/\1/p' "$script")"
+  [ -n "$validated_rev" ] || { echo 'VALIDATED_CONFIG_REV is not pinned' >&2; exit 1; }
+  if grep -Fq 'commits/main' "$script"; then
+    echo 'recovery script still resolves mutable main' >&2
+    exit 1
+  fi
+  printf 'PASS validated-config-revision: %s\n' "$validated_rev"
 
   initrd_hash_line="$(grep -nF 'pass built-initrd-hash' "$script" | head -n 1 | cut -d: -f1)"
   esp_rw_line="$(grep -nF 'mount -o remount,rw "$TARGET/boot"' "$script" | head -n 1 | cut -d: -f1)"
