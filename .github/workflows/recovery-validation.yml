@@ -32,4 +32,18 @@ jobs:
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@v3.21.0
-      - run: tests/verify-recovery.sh .
+
+      - name: Bash syntax
+        run: bash -n recover-external-hdd
+
+      - name: ShellCheck
+        run: |
+          rev="$(sed -n 's/^NIXPKGS_REV="\([0-9a-f]\{40\}\)"$/\1/p' recover-external-hdd)"
+          test -n "$rev"
+          nix shell "github:NixOS/nixpkgs/$rev#shellcheck" --command shellcheck recover-external-hdd
+
+      - name: Static safety invariants
+        run: tests/verify-recovery.sh static .
+
+      - name: Nix configuration evaluation
+        run: tests/verify-recovery.sh nix .
