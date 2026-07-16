@@ -34,16 +34,57 @@ jobs:
       - uses: DeterminateSystems/determinate-nix-action@v3.21.0
 
       - name: Bash syntax
+        id: syntax
+        continue-on-error: true
         run: bash -n recover-external-hdd
 
       - name: ShellCheck
+        id: shellcheck
+        continue-on-error: true
         run: |
           rev="$(sed -n 's/^NIXPKGS_REV="\([0-9a-f]\{40\}\)"$/\1/p' recover-external-hdd)"
           test -n "$rev"
-          nix shell "github:NixOS/nixpkgs/$rev#shellcheck" --command shellcheck recover-external-hdd
+          set +e
+          nix shell "github:NixOS/nixpkgs/$rev#shellcheck" \
+            --command shellcheck --format=gcc recover-external-hdd \
+            >shellcheck.txt 2>&1
+          rc=$?
+          set -e
+          cat shellcheck.txt
+          exit "$rc"
 
       - name: Static safety invariants
+        id: static
+        if: always()
+        continue-on-error: true
         run: tests/verify-recovery.sh static .
 
       - name: Nix configuration evaluation
+        id: nix-eval
+        if: always()
+        continue-on-error: true
         run: tests/verify-recovery.sh nix .
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: recovery-validation-${{ github.run_id }}
+          path: shellcheck.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce validation results
+        if: always()
+        env:
+          SYNTAX: ${{ steps.syntax.outcome }}
+          SHELLCHECK: ${{ steps.shellcheck.outcome }}
+          STATIC: ${{ steps.static.outcome }}
+          NIX_EVAL: ${{ steps.nix-eval.outcome }}
+        run: |
+          printf 'syntax=%s\nshellcheck=%s\nstatic=%s\nnix-eval=%s\n' \
+            "$SYNTAX" "$SHELLCHECK" "$STATIC" "$NIX_EVAL"
+          test "$SYNTAX" = success
+          test "$SHELLCHECK" = success
+          test "$STATIC" = success
+          test "$NIX_EVAL" = success
