@@ -1,0 +1,113 @@
+name: Recovery validation
+
+on:
+  pull_request:
+    paths:
+      - recover-external-hdd
+      - modules/external-hdd-backup.nix
+      - modules/external-hdd-backup-initrd.nix
+      - flake.nix
+      - flake.lock
+      - tests/verify-recovery.sh
+      - .github/workflows/recovery-validation.yml
+  push:
+    branches: [main]
+    paths:
+      - recover-external-hdd
+      - modules/external-hdd-backup.nix
+      - modules/external-hdd-backup-initrd.nix
+      - flake.nix
+      - flake.lock
+      - tests/verify-recovery.sh
+      - .github/workflows/recovery-validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recovery-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@v3.21.0
+
+      - name: Bash syntax
+        id: syntax
+        continue-on-error: true
+        run: bash -n recover-external-hdd
+
+      - name: ShellCheck
+        id: shellcheck
+        continue-on-error: true
+        run: |
+          rev="$(sed -n 's/^NIXPKGS_REV="\([0-9a-f]\{40\}\)"$/\1/p' recover-external-hdd)"
+          test -n "$rev"
+          set +e
+          # SC2016 is intentional: these are Markdown backticks in constant
+          # printf format strings; all data is passed as separate arguments.
+          nix shell "github:NixOS/nixpkgs/$rev#shellcheck" \
+            --command shellcheck --exclude=SC2016 --format=gcc recover-external-hdd \
+            >shellcheck.txt 2>&1
+          rc=$?
+          set -e
+          cat shellcheck.txt
+          exit "$rc"
+
+      - name: Static safety invariants
+        id: static
+        if: always()
+        continue-on-error: true
+        run: |
+          set +e
+          bash tests/verify-recovery.sh static . >static-validation.txt 2>&1
+          rc=$?
+          set -e
+          cat static-validation.txt
+          exit "$rc"
+
+      - name: Nix configuration evaluation
+        id: nix_eval
+        if: always()
+        continue-on-error: true
+        run: |
+          set +e
+          bash tests/verify-recovery.sh nix . >nix-evaluation.txt 2>&1
+          rc=$?
+          set -e
+          cat nix-evaluation.txt
+          exit "$rc"
+
+      - name: Record validation outcomes
+        if: always()
+        env:
+          SYNTAX: ${{ steps.syntax.outcome }}
+          SHELLCHECK: ${{ steps.shellcheck.outcome }}
+          STATIC: ${{ steps.static.outcome }}
+          NIX_EVAL: ${{ steps.nix_eval.outcome }}
+        run: |
+          printf 'syntax=%s\nshellcheck=%s\nstatic=%s\nnix-eval=%s\n' \
+            "$SYNTAX" "$SHELLCHECK" "$STATIC" "$NIX_EVAL" \
+            | tee validation-outcomes.txt
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6.0.0
+        with:
+          name: recovery-validation-${{ github.run_id }}
+          path: |
+            shellcheck.txt
+            static-validation.txt
+            nix-evaluation.txt
+            validation-outcomes.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Enforce validation results
+        if: always()
+        run: |
+          grep -Fx 'syntax=success' validation-outcomes.txt
+          grep -Fx 'shellcheck=success' validation-outcomes.txt
+          grep -Fx 'static=success' validation-outcomes.txt
+          grep -Fx 'nix-eval=success' validation-outcomes.txt
