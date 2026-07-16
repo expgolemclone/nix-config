@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+shopt -s nullglob
 
 ROOT_UUID="741133ee-fa8d-4674-8809-2735e197acae"
 BOOT_UUID="BACA-0001"
@@ -11,10 +12,15 @@ YAZI_SOURCE="$TARGET/home/exp/projects/yazi_fork"
 LOG="/tmp/external-hdd-recovery.log"
 UPLOAD_REPO="expgolemclone/nix-config"
 UPLOAD_PR="20"
+EXPECTED_GITHUB_LOGIN="expgolemclone"
+NIXPKGS_REV="9ae611a455b90cf061d8f332b977e387bda8e1ca"
+GH_PACKAGE="github:NixOS/nixpkgs/$NIXPKGS_REV#gh"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 REPORT="/tmp/external-hdd-recovery-report-$RUN_ID.md"
+START_REPORT="/tmp/external-hdd-recovery-start-$RUN_ID.md"
 GH_CONFIG_DIR_BACKUP="$TARGET/home/exp/.config/gh"
 FAILED_LINE=""
+REPORTING_READY=0
 
 exec > >(tee -a "$LOG") 2>&1
 
@@ -30,6 +36,12 @@ sanitize_log() {
       -e 's#gh[pousr]_[A-Za-z0-9_]+#<redacted-token>#g' \
       -e 's#github_pat_[A-Za-z0-9_]+#<redacted-token>#g' \
       -e "s#$TARGET/home/exp#<backup-home>#g"
+}
+
+run_gh() {
+  GH_CONFIG_DIR="$GH_CONFIG_DIR_BACKUP" \
+    nix --extra-experimental-features 'nix-command flakes' \
+      shell "$GH_PACKAGE" --command gh "$@"
 }
 
 upload_report() {
@@ -53,18 +65,13 @@ upload_report() {
     printf '\n```\n'
   } > "$REPORT"
 
-  if [ ! -f "$GH_CONFIG_DIR_BACKUP/hosts.yml" ]; then
-    printf 'GitHub upload skipped: saved gh authentication was not found at %s\n' "$GH_CONFIG_DIR_BACKUP"
+  if [ "$REPORTING_READY" -ne 1 ]; then
+    printf 'GitHub report was not uploaded because authenticated reporting was not established.\n'
     printf 'Local report: %s\n' "$REPORT"
     return 0
   fi
 
-  upload_url="$({
-    GH_CONFIG_DIR="$GH_CONFIG_DIR_BACKUP" \
-      nix --extra-experimental-features 'nix-command flakes' \
-      shell nixpkgs#gh --command \
-      gh pr comment "$UPLOAD_PR" --repo "$UPLOAD_REPO" --body-file "$REPORT"
-  } 2>&1)" || {
+  upload_url="$(run_gh pr comment "$UPLOAD_PR" --repo "$UPLOAD_REPO" --body-file "$REPORT" 2>&1)" || {
     printf 'GitHub upload failed; recovery result remains in %s\n%s\n' "$REPORT" "$upload_url"
     return 0
   }
@@ -94,7 +101,7 @@ trap on_exit EXIT
 [ -d /sys/firmware/efi ] || fail "the installer USB must be booted in UEFI mode"
 
 for command in awk blkid findmnt mount mountpoint nix nixos-install readlink sed sha256sum sync tail tee uname; do
-  command -v "$command" >/dev/null || fail "missing command: $command"
+  command -v "$command" >/dev/null || fail "missing installer command: $command"
 done
 
 root_dev="/dev/disk/by-uuid/$ROOT_UUID"
@@ -115,10 +122,42 @@ mkdir -p "$TARGET"
 if mountpoint -q "$TARGET"; then
   mounted_root="$(findmnt -n -o SOURCE --target "$TARGET")"
   same_device "$mounted_root" "$root_dev" || fail "$TARGET is mounted from $mounted_root, not the backup root"
-  mount -o remount,rw "$TARGET"
 else
-  mount -o rw "$root_dev" "$TARGET"
+  mount -o ro "$root_dev" "$TARGET"
 fi
+
+[ -f "$YAZI_SOURCE/flake.nix" ] || fail "missing backup copy of $YAZI_SOURCE"
+[ -f "$GH_CONFIG_DIR_BACKUP/hosts.yml" ] || fail "saved gh authentication is missing at $GH_CONFIG_DIR_BACKUP/hosts.yml"
+
+printf '\nChecking GitHub authentication from the live installer...\n'
+run_gh auth status --hostname github.com \
+  || fail "saved gh authentication is unusable here; it may exist only in the desktop keyring"
+
+github_login="$(run_gh api user --jq .login)" \
+  || fail "GitHub API authentication failed"
+[ "$github_login" = "$EXPECTED_GITHUB_LOGIN" ] \
+  || fail "GitHub authenticated as $github_login, expected $EXPECTED_GITHUB_LOGIN"
+
+repo_push="$(run_gh api "repos/$UPLOAD_REPO" --jq '.permissions.push // false')" \
+  || fail "could not verify GitHub repository permission"
+[ "$repo_push" = true ] \
+  || fail "GitHub account lacks write permission for $UPLOAD_REPO"
+
+{
+  printf '## External HDD recovery started\n\n'
+  printf -- '- Run: `%s`\n' "$RUN_ID"
+  printf -- '- Installer kernel: `%s`\n' "$(uname -srmo)"
+  printf -- '- Root UUID: `%s`\n' "$ROOT_UUID"
+  printf -- '- Boot UUID: `%s`\n' "$BOOT_UUID"
+  printf -- '- Authentication: `%s`\n' "$github_login"
+} > "$START_REPORT"
+
+run_gh pr comment "$UPLOAD_PR" --repo "$UPLOAD_REPO" --body-file "$START_REPORT" \
+  || fail "GitHub authentication worked, but posting to PR #$UPLOAD_PR failed"
+REPORTING_READY=1
+printf 'GitHub reporting verified by posting the start report.\n'
+
+mount -o remount,rw "$TARGET"
 
 mkdir -p "$TARGET/boot"
 if mountpoint -q "$TARGET/boot"; then
@@ -128,8 +167,6 @@ if mountpoint -q "$TARGET/boot"; then
 else
   mount -t vfat -o rw "$boot_dev" "$TARGET/boot"
 fi
-
-[ -f "$YAZI_SOURCE/flake.nix" ] || fail "missing backup copy of $YAZI_SOURCE"
 
 printf '\nTarget verified:\n'
 printf '  root: %s (%s)\n' "$root_dev" "$ROOT_LABEL"
