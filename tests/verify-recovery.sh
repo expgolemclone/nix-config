@@ -29,6 +29,19 @@ assert_json_contains() {
   printf 'PASS %s: %s\n' "$name" "$value"
 }
 
+make_stub() {
+  local stub="$1"
+  mkdir -p "$stub"
+  cat > "$stub/flake.nix" <<'STUB'
+{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  outputs = { self, nixpkgs }: {
+    overlays.default = final: prev: { };
+  };
+}
+STUB
+}
+
 static_checks() {
   local initrd_hash_line
   local esp_rw_line
@@ -70,15 +83,7 @@ nix_checks() {
   local initrd_drv
 
   stub="$(mktemp -d)"
-  cat > "$stub/flake.nix" <<'STUB'
-{
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-  outputs = { self, nixpkgs }: {
-    overlays.default = final: prev: { };
-  };
-}
-STUB
-
+  make_stub "$stub"
   config="$repo#nixosConfigurations.nixos"
 
   nix_eval() {
@@ -122,9 +127,61 @@ STUB
   rm -rf "$stub"
 }
 
+build_initrd_checks() {
+  local stub
+  local config
+  local initrd_drv
+  local initrd_out
+  local nixpkgs_rev
+  local listing="ci-initrd-files.txt"
+
+  stub="$(mktemp -d)"
+  make_stub "$stub"
+  config="$repo#nixosConfigurations.nixos"
+
+  initrd_drv="$(
+    nix --extra-experimental-features 'nix-command flakes' eval \
+      --override-input yazi-fork "path:$stub" \
+      --no-write-lock-file --raw "$config" \
+      --apply 'n: n.config.specialisation."external-hdd-backup".configuration.system.build.initialRamdisk.drvPath'
+  )"
+  [ -n "$initrd_drv" ] || { echo 'FAIL initialRamdisk drvPath is empty' >&2; return 1; }
+
+  initrd_out="$(
+    nix --extra-experimental-features 'nix-command flakes' build \
+      --no-link --print-out-paths "$initrd_drv"
+  )"
+  [ -f "$initrd_out" ] || { printf 'FAIL built initrd is not a file: %s\n' "$initrd_out" >&2; return 1; }
+  printf 'PASS built-initrd: %s\n' "$initrd_out"
+
+  nixpkgs_rev="$(sed -n 's/^NIXPKGS_REV="\([0-9a-f]\{40\}\)"$/\1/p' "$script")"
+  [ -n "$nixpkgs_rev" ] || { echo 'FAIL NIXPKGS_REV is not pinned' >&2; return 1; }
+  nix --extra-experimental-features 'nix-command flakes' \
+    shell "github:NixOS/nixpkgs/$nixpkgs_rev#dracut" \
+    --command lsinitrd "$initrd_out" > "$listing"
+
+  for module_spec in \
+    'xhci_pci:xhci[-_]pci\.ko' \
+    'sd_mod:sd_mod\.ko' \
+    'uas:uas\.ko' \
+    'usb_storage:usb-storage\.ko'
+  do
+    module_name="${module_spec%%:*}"
+    module_pattern="${module_spec#*:}"
+    grep -Eq "/${module_pattern}(\.(xz|zst|gz))?$" "$listing" \
+      || { printf 'FAIL module missing from built initrd: %s\n' "$module_name" >&2; return 1; }
+    printf 'PASS built-initrd-module: %s\n' "$module_name"
+  done
+
+  sha256sum "$initrd_out" | tee ci-initrd-sha256.txt
+  rm -rf "$stub"
+  printf 'built initrd inspection passed\n'
+}
+
 case "$mode" in
   static) static_checks ;;
   nix) nix_checks ;;
-  all) static_checks; nix_checks ;;
+  build-initrd) build_initrd_checks ;;
+  all) static_checks; nix_checks; build_initrd_checks ;;
   *) echo "unknown validation mode: $mode" >&2; exit 2 ;;
 esac
