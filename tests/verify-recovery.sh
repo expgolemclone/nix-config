@@ -30,6 +30,10 @@ assert_json_contains() {
 }
 
 static_checks() {
+  local initrd_hash_line
+  local esp_rw_line
+  local install_line
+
   if grep -En '(^|[^[:alnum:]_])(mkfs|wipefs|fdisk|sfdisk|parted|fsck|badblocks)([^[:alnum:]_]|$)' "$script"; then
     echo 'destructive disk command found in recovery script' >&2
     exit 1
@@ -39,7 +43,18 @@ static_checks() {
   grep -Fq 'initrd-module-' "$script"
   grep -Fq 'installed-initrd-hash' "$script"
   grep -Fq 'github-write-proof' "$script"
-  grep -Fq 'mount -o remount,rw "$TARGET/boot"' "$script"
+
+  initrd_hash_line="$(grep -nF 'pass built-initrd-hash' "$script" | head -n 1 | cut -d: -f1)"
+  esp_rw_line="$(grep -nF 'mount -o remount,rw "$TARGET/boot"' "$script" | head -n 1 | cut -d: -f1)"
+  install_line="$(grep -n '^nixos-install \\' "$script" | head -n 1 | cut -d: -f1)"
+  [ -n "$initrd_hash_line" ] && [ -n "$esp_rw_line" ] && [ -n "$install_line" ]
+  if ! (( initrd_hash_line < esp_rw_line && esp_rw_line < install_line )); then
+    printf 'unsafe ordering: initrd-hash=%s esp-rw=%s install=%s\n' \
+      "$initrd_hash_line" "$esp_rw_line" "$install_line" >&2
+    exit 1
+  fi
+
+  printf 'PASS ordering: initrd verified before ESP write and installation\n'
   printf 'static recovery checks passed\n'
 }
 
@@ -51,6 +66,8 @@ nix_checks() {
   local modules
   local root_options
   local drv_path
+  local specialisation_drv
+  local initrd_drv
 
   stub="$(mktemp -d)"
   cat > "$stub/flake.nix" <<'STUB'
@@ -89,8 +106,17 @@ STUB
 
   drv_path="$(nix_eval --raw \
     "$repo#nixosConfigurations.nixos.config.system.build.toplevel.drvPath")"
+  specialisation_drv="$(nix_eval --raw "$config" \
+    --apply 'n: n.config.specialisation."external-hdd-backup".configuration.system.build.toplevel.drvPath')"
+  initrd_drv="$(nix_eval --raw "$config" \
+    --apply 'n: n.config.specialisation."external-hdd-backup".configuration.system.build.initialRamdisk.drvPath')"
+
   [ -n "$drv_path" ] || { echo 'FAIL toplevel drvPath is empty' >&2; return 1; }
+  [ -n "$specialisation_drv" ] || { echo 'FAIL specialisation drvPath is empty' >&2; return 1; }
+  [ -n "$initrd_drv" ] || { echo 'FAIL specialisation initialRamdisk drvPath is empty' >&2; return 1; }
   printf 'PASS toplevel-drv: %s\n' "$drv_path"
+  printf 'PASS specialisation-drv: %s\n' "$specialisation_drv"
+  printf 'PASS initialRamdisk-drv: %s\n' "$initrd_drv"
   printf 'Nix recovery checks passed\n'
 
   rm -rf "$stub"
