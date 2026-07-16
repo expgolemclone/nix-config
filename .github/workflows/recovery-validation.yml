@@ -59,13 +59,25 @@ jobs:
         id: static
         if: always()
         continue-on-error: true
-        run: bash tests/verify-recovery.sh static .
+        run: |
+          set +e
+          bash tests/verify-recovery.sh static . >static-validation.txt 2>&1
+          rc=$?
+          set -e
+          cat static-validation.txt
+          exit "$rc"
 
       - name: Nix configuration evaluation
         id: nix_eval
         if: always()
         continue-on-error: true
-        run: bash tests/verify-recovery.sh nix .
+        run: |
+          set +e
+          bash tests/verify-recovery.sh nix . >nix-evaluation.txt 2>&1
+          rc=$?
+          set -e
+          cat nix-evaluation.txt
+          exit "$rc"
 
       - name: Record validation outcomes
         if: always()
@@ -86,6 +98,8 @@ jobs:
           name: recovery-validation-${{ github.run_id }}
           path: |
             shellcheck.txt
+            static-validation.txt
+            nix-evaluation.txt
             validation-outcomes.txt
           if-no-files-found: ignore
           retention-days: 7
