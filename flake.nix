@@ -23,6 +23,7 @@
       system = "x86_64-linux";
       modules = [
         ./modules/external-hdd-backup.nix
+        ./modules/external-hdd-backup-initrd.nix
         ./modules/gc.nix
         ./hosts/nixos/configuration.nix
         home-manager.nixosModules.home-manager
