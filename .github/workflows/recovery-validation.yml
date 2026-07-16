@@ -28,7 +28,7 @@ permissions:
 jobs:
   recovery-validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@v3.21.0
@@ -79,6 +79,18 @@ jobs:
           cat nix-evaluation.txt
           exit "$rc"
 
+      - name: Build and inspect specialisation initrd
+        id: initrd_build
+        if: always()
+        continue-on-error: true
+        run: |
+          set +e
+          bash tests/verify-recovery.sh build-initrd . >initrd-build.txt 2>&1
+          rc=$?
+          set -e
+          cat initrd-build.txt
+          exit "$rc"
+
       - name: Record validation outcomes
         if: always()
         env:
@@ -86,9 +98,10 @@ jobs:
           SHELLCHECK: ${{ steps.shellcheck.outcome }}
           STATIC: ${{ steps.static.outcome }}
           NIX_EVAL: ${{ steps.nix_eval.outcome }}
+          INITRD_BUILD: ${{ steps.initrd_build.outcome }}
         run: |
-          printf 'syntax=%s\nshellcheck=%s\nstatic=%s\nnix-eval=%s\n' \
-            "$SYNTAX" "$SHELLCHECK" "$STATIC" "$NIX_EVAL" \
+          printf 'syntax=%s\nshellcheck=%s\nstatic=%s\nnix-eval=%s\ninitrd-build=%s\n' \
+            "$SYNTAX" "$SHELLCHECK" "$STATIC" "$NIX_EVAL" "$INITRD_BUILD" \
             | tee validation-outcomes.txt
 
       - name: Upload diagnostics
@@ -100,6 +113,9 @@ jobs:
             shellcheck.txt
             static-validation.txt
             nix-evaluation.txt
+            initrd-build.txt
+            ci-initrd-files.txt
+            ci-initrd-sha256.txt
             validation-outcomes.txt
           if-no-files-found: ignore
           retention-days: 7
@@ -111,3 +127,4 @@ jobs:
           grep -Fx 'shellcheck=success' validation-outcomes.txt
           grep -Fx 'static=success' validation-outcomes.txt
           grep -Fx 'nix-eval=success' validation-outcomes.txt
+          grep -Fx 'initrd-build=success' validation-outcomes.txt

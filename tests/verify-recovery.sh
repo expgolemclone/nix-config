@@ -29,10 +29,24 @@ assert_json_contains() {
   printf 'PASS %s: %s\n' "$name" "$value"
 }
 
+make_stub() {
+  local stub="$1"
+  mkdir -p "$stub"
+  cat > "$stub/flake.nix" <<'STUB'
+{
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  outputs = { self, nixpkgs }: {
+    overlays.default = final: prev: { };
+  };
+}
+STUB
+}
+
 static_checks() {
   local initrd_hash_line
   local esp_rw_line
   local install_line
+  local validated_rev
 
   if grep -En '(^|[^[:alnum:]_])(mkfs|wipefs|fdisk|sfdisk|parted|fsck|badblocks)([^[:alnum:]_]|$)' "$script"; then
     echo 'destructive disk command found in recovery script' >&2
@@ -43,6 +57,14 @@ static_checks() {
   grep -Fq 'initrd-module-' "$script"
   grep -Fq 'installed-initrd-hash' "$script"
   grep -Fq 'github-write-proof' "$script"
+
+  validated_rev="$(sed -n 's/^VALIDATED_CONFIG_REV="\([0-9a-f]\{40\}\)"$/\1/p' "$script")"
+  [ -n "$validated_rev" ] || { echo 'VALIDATED_CONFIG_REV is not pinned' >&2; exit 1; }
+  if grep -Fq 'commits/main' "$script"; then
+    echo 'recovery script still resolves mutable main' >&2
+    exit 1
+  fi
+  printf 'PASS validated-config-revision: %s\n' "$validated_rev"
 
   initrd_hash_line="$(grep -nF 'pass built-initrd-hash' "$script" | head -n 1 | cut -d: -f1)"
   esp_rw_line="$(grep -nF 'mount -o remount,rw "$TARGET/boot"' "$script" | head -n 1 | cut -d: -f1)"
@@ -70,15 +92,7 @@ nix_checks() {
   local initrd_drv
 
   stub="$(mktemp -d)"
-  cat > "$stub/flake.nix" <<'STUB'
-{
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-  outputs = { self, nixpkgs }: {
-    overlays.default = final: prev: { };
-  };
-}
-STUB
-
+  make_stub "$stub"
   config="$repo#nixosConfigurations.nixos"
 
   nix_eval() {
@@ -122,9 +136,74 @@ STUB
   rm -rf "$stub"
 }
 
+build_initrd_checks() {
+  local stub
+  local config
+  local initrd_drv
+  local initrd_out
+  local initrd_image
+  local nixpkgs_rev
+  local listing="ci-initrd-files.txt"
+  local -a candidates=()
+
+  stub="$(mktemp -d)"
+  make_stub "$stub"
+  config="$repo#nixosConfigurations.nixos"
+
+  initrd_drv="$(
+    nix --extra-experimental-features 'nix-command flakes' eval \
+      --override-input yazi-fork "path:$stub" \
+      --no-write-lock-file --raw "$config" \
+      --apply 'n: n.config.specialisation."external-hdd-backup".configuration.system.build.initialRamdisk.drvPath'
+  )"
+  [ -n "$initrd_drv" ] || { echo 'FAIL initialRamdisk drvPath is empty' >&2; return 1; }
+
+  initrd_out="$(nix-store --realise "$initrd_drv")"
+  if [ -f "$initrd_out" ]; then
+    initrd_image="$initrd_out"
+  elif [ -d "$initrd_out" ]; then
+    mapfile -t candidates < <(find "$initrd_out" -maxdepth 2 -type f -name 'initrd*' -print | sort)
+    [ "${#candidates[@]}" -eq 1 ] || {
+      printf 'FAIL expected one initrd image under %s, found %s\n' "$initrd_out" "${#candidates[@]}" >&2
+      find "$initrd_out" -maxdepth 2 -printf '%y %p\n' >&2
+      return 1
+    }
+    initrd_image="${candidates[0]}"
+  else
+    printf 'FAIL realised initrd output has unexpected type: %s\n' "$initrd_out" >&2
+    return 1
+  fi
+  printf 'PASS built-initrd-output: %s\n' "$initrd_out"
+  printf 'PASS built-initrd-image: %s\n' "$initrd_image"
+
+  nixpkgs_rev="$(sed -n 's/^NIXPKGS_REV="\([0-9a-f]\{40\}\)"$/\1/p' "$script")"
+  [ -n "$nixpkgs_rev" ] || { echo 'FAIL NIXPKGS_REV is not pinned' >&2; return 1; }
+  nix --extra-experimental-features 'nix-command flakes' \
+    shell "github:NixOS/nixpkgs/$nixpkgs_rev#dracut" \
+    --command lsinitrd "$initrd_image" > "$listing"
+
+  for module_spec in \
+    'xhci_pci:xhci[-_]pci\.ko' \
+    'sd_mod:sd_mod\.ko' \
+    'uas:uas\.ko' \
+    'usb_storage:usb-storage\.ko'
+  do
+    module_name="${module_spec%%:*}"
+    module_pattern="${module_spec#*:}"
+    grep -Eq "/${module_pattern}(\.(xz|zst|gz))?$" "$listing" \
+      || { printf 'FAIL module missing from built initrd: %s\n' "$module_name" >&2; return 1; }
+    printf 'PASS built-initrd-module: %s\n' "$module_name"
+  done
+
+  sha256sum "$initrd_image" | tee ci-initrd-sha256.txt
+  rm -rf "$stub"
+  printf 'built initrd inspection passed\n'
+}
+
 case "$mode" in
   static) static_checks ;;
   nix) nix_checks ;;
-  all) static_checks; nix_checks ;;
+  build-initrd) build_initrd_checks ;;
+  all) static_checks; nix_checks; build_initrd_checks ;;
   *) echo "unknown validation mode: $mode" >&2; exit 2 ;;
 esac
