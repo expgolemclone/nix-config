@@ -45,8 +45,10 @@ jobs:
           rev="$(sed -n 's/^NIXPKGS_REV="\([0-9a-f]\{40\}\)"$/\1/p' recover-external-hdd)"
           test -n "$rev"
           set +e
+          # SC2016 is intentional: these are Markdown backticks in constant
+          # printf format strings; all data is passed as separate arguments.
           nix shell "github:NixOS/nixpkgs/$rev#shellcheck" \
-            --command shellcheck --format=gcc recover-external-hdd \
+            --command shellcheck --exclude=SC2016 --format=gcc recover-external-hdd \
             >shellcheck.txt 2>&1
           rc=$?
           set -e
