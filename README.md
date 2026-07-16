@@ -46,3 +46,5 @@ curl -fsSL https://raw.githubusercontent.com/expgolemclone/nix-config/main/recov
 ```
 
 スクリプトは外付けHDDのUUID・LABELを検証してからマウントし、`external-hdd-backup`を含む新しいシステムとブートエントリを生成する。フォーマット、パーティション変更、`fsck -y`は実行しない。
+
+バックアップrootに既存の`gh`認証（`/home/exp/.config/gh/hosts.yml`）があれば、成功・失敗にかかわらず、トークンとホームパスを除去した直近120行のログ要約をPR #20へ自動投稿する。投稿先は公開リポジトリなので、完全なログは送信しない。認証がない場合も復旧処理自体は失敗させず、レポートを`/tmp`へ残す。
