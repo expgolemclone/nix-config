@@ -39,12 +39,12 @@
 
 ### 外付けHDDのinitrdをライブUSBから再生成
 
-ライブUSBをUEFIモードで起動し、ネットワーク接続後に次の1行を実行する。
+公式NixOSインストーラをUEFIモードで起動し、ネットワーク接続後に次の1行を実行する。インストーラには`curl`、`sudo`、`nix`、`nixos-install`が標準で含まれ、`nixos`ユーザーの`sudo`はパスワード不要。
 
 ```console
 curl -fsSL https://raw.githubusercontent.com/expgolemclone/nix-config/main/recover-external-hdd | sudo bash
 ```
 
-スクリプトは外付けHDDのUUID・LABELを検証してからマウントし、`external-hdd-backup`を含む新しいシステムとブートエントリを生成する。フォーマット、パーティション変更、`fsck -y`は実行しない。
+スクリプトは必要なインストーラコマンドと外付けHDDのUUID・LABELを検証する。バックアップrootを読み取り可能にした後、保存済み`gh`設定を使って`gh auth status`、GitHub API上のログイン名、対象リポジトリへのwrite権限、PR #20への開始コメント投稿を実際に確認する。認証または投稿が失敗した場合は、HDDへのインストールを開始せず終了する。
 
-バックアップrootに既存の`gh`認証（`/home/exp/.config/gh/hosts.yml`）があれば、成功・失敗にかかわらず、トークンとホームパスを除去した直近120行のログ要約をPR #20へ自動投稿する。投稿先は公開リポジトリなので、完全なログは送信しない。認証がない場合も復旧処理自体は失敗させず、レポートを`/tmp`へ残す。
+認証と開始投稿が通った場合だけrootとESPを読み書きにし、`external-hdd-backup`を含む新しいシステムとブートエントリを生成する。終了時は成功・失敗にかかわらず、トークンとホームパスを除去した直近120行のログ要約をPR #20へ投稿する。完全なログは`/tmp`だけに残す。フォーマット、パーティション変更、`fsck -y`は実行しない。
