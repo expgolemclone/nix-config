@@ -9,19 +9,91 @@ TARGET="/mnt"
 FLAKE="github:expgolemclone/nix-config/main#nixos"
 YAZI_SOURCE="$TARGET/home/exp/projects/yazi_fork"
 LOG="/tmp/external-hdd-recovery.log"
+UPLOAD_REPO="expgolemclone/nix-config"
+UPLOAD_PR="20"
+RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+REPORT="/tmp/external-hdd-recovery-report-$RUN_ID.md"
+GH_CONFIG_DIR_BACKUP="$TARGET/home/exp/.config/gh"
+FAILED_LINE=""
 
 exec > >(tee -a "$LOG") 2>&1
-trap 'status=$?; printf "\nRecovery failed at line %s (status %s). Log: %s\n" "$LINENO" "$status" "$LOG" >&2; exit "$status"' ERR
 
 fail() {
   printf 'ERROR: %s\n' "$*" >&2
   exit 1
 }
 
+sanitize_log() {
+  tail -n 120 "$LOG" 2>/dev/null \
+    | sed -E \
+      -e $'s/\x1B\[[0-9;]*[[:alpha:]]//g' \
+      -e 's#gh[pousr]_[A-Za-z0-9_]+#<redacted-token>#g' \
+      -e 's#github_pat_[A-Za-z0-9_]+#<redacted-token>#g' \
+      -e "s#$TARGET/home/exp#<backup-home>#g"
+}
+
+upload_report() {
+  local rc="$1"
+  local outcome="SUCCESS"
+  local upload_url=""
+
+  [ "$rc" -eq 0 ] || outcome="FAILED"
+
+  {
+    printf '## External HDD recovery report\n\n'
+    printf -- '- Run: `%s`\n' "$RUN_ID"
+    printf -- '- Status: **%s** (exit %s)\n' "$outcome" "$rc"
+    [ -z "$FAILED_LINE" ] || printf -- '- Failed line: `%s`\n' "$FAILED_LINE"
+    printf -- '- Kernel: `%s`\n' "$(uname -srmo 2>/dev/null || echo unknown)"
+    printf -- '- Root device: `%s`\n' "${root_dev:-not-detected}"
+    printf -- '- Boot device: `%s`\n' "${boot_dev:-not-detected}"
+    printf -- '- Log SHA-256: `%s`\n' "$(sha256sum "$LOG" 2>/dev/null | awk '{print $1}' || echo unavailable)"
+    printf '\n### Recent sanitized log\n\n```text\n'
+    sanitize_log
+    printf '\n```\n'
+  } > "$REPORT"
+
+  if [ ! -f "$GH_CONFIG_DIR_BACKUP/hosts.yml" ]; then
+    printf 'GitHub upload skipped: saved gh authentication was not found at %s\n' "$GH_CONFIG_DIR_BACKUP"
+    printf 'Local report: %s\n' "$REPORT"
+    return 0
+  fi
+
+  upload_url="$({
+    GH_CONFIG_DIR="$GH_CONFIG_DIR_BACKUP" \
+      nix --extra-experimental-features 'nix-command flakes' \
+      shell nixpkgs#gh --command \
+      gh pr comment "$UPLOAD_PR" --repo "$UPLOAD_REPO" --body-file "$REPORT"
+  } 2>&1)" || {
+    printf 'GitHub upload failed; recovery result remains in %s\n%s\n' "$REPORT" "$upload_url"
+    return 0
+  }
+
+  printf 'GitHub report uploaded: %s\n' "$upload_url"
+}
+
+on_error() {
+  local rc="$?"
+  FAILED_LINE="${BASH_LINENO[0]:-$LINENO}"
+  printf '\nRecovery failed at line %s (status %s). Log: %s\n' "$FAILED_LINE" "$rc" "$LOG" >&2
+  exit "$rc"
+}
+
+on_exit() {
+  local rc="$?"
+  trap - ERR EXIT
+  set +e
+  upload_report "$rc"
+  exit "$rc"
+}
+
+trap on_error ERR
+trap on_exit EXIT
+
 [ "${EUID:-$(id -u)}" -eq 0 ] || fail "run this script as root"
 [ -d /sys/firmware/efi ] || fail "the installer USB must be booted in UEFI mode"
 
-for command in blkid findmnt mount mountpoint nixos-install readlink sync; do
+for command in awk blkid findmnt mount mountpoint nix nixos-install readlink sed sha256sum sync tail tee uname; do
   command -v "$command" >/dev/null || fail "missing command: $command"
 done
 
