@@ -1,50 +1,69 @@
 # nix-config
 
-`exp` 用の NixOS / Home Manager 設定リポジトリ。過去に認証設定を壊したまま `nixos-rebuild switch` を実行してログイン不能になったため、この README には最小限の安全ルールだけを残す。
-
-## 目立つ修正
-
-- **[26aa4ce](https://github.com/expgolemclone/nix-config/commit/26aa4ce8da94a7e2d7c2f5bbe78af44727eff813)**: j5create JCD554 経由の外部 3 台を 4K 30fps, 縦, 縦, 縦(反対向き) に固定し、LG の横向き / 低解像度化を失敗扱いにする。
+`exp`用のNixOS / Home Manager設定リポジトリ. 過去に認証設定を壊したまま`nixos-rebuild switch`を実行してログイン不能になったため, このREADMEには最小限の安全ルールだけを残す.
 
 ## 最重要
 
-- branch は切らない。`master` で作業する。
-- `users` / `security` / `pam` / `systemd` まわりは、影響を説明できる場合だけ変更する。
-- 次の設定は原則変更禁止。
+- bookmarkとremote branchは`main`だけを使う.
+- `users` / `security` / `pam` / `systemd`まわりは, 影響を説明できる場合だけ変更する.
+- 次の設定は原則変更禁止.
   - `systemd.sysusers.enable = false`
   - `services.userborn.enable = false`
-  - `users.mutableUsers` を `false` にする変更
+  - `users.mutableUsers`を`false`にする変更
 
-## rebuild 手順
+## rebuild手順
 
-1. `git diff` で変更を確認する。
-2. `git commit` して戻せる状態を作る。
-3. `nixos-rebuild build --flake .#nixos` で先にビルドだけ通す。
-4. 問題なければ `sudo -n nixos-rebuild switch --flake .#nixos` を実行する。
-5. switch 直後に別 TTY でログイン確認する。失敗したら `nixos-rebuild switch --rollback`。
+1. `jj diff`で変更を確認する.
+2. 戻せるchangeを作る.
+3. `nixos-rebuild build --flake .#nixos`で先にビルドだけを通す.
+4. 問題がなければ`sudo -n nixos-rebuild switch --flake .#nixos`を実行する.
+5. switch直後に別TTYまたはSSHでログイン確認する. 失敗したら`nixos-rebuild switch --rollback`を実行する.
 
 ## 現行の注意点
 
-- SDDM の Wayland session は plain `hyprland.desktop` だけを使う。
-- 廃止済み `fetch-journal` / `journal-fetch` / `journal-push` user unit は Home Manager activation で消す。
-- Mozc ユーザ辞書は `home/desktop/fcitx5.nix` と `home/desktop/mozc-user-dictionary.nix` で宣言管理する。
-- Neovim は `lualine` に `catppuccin-nvim` を使い、`wrap` / `linebreak` / `breakindent` を有効にする。
-- カーソルテーマは Bibata-Modern-Ice（白）と Bibata-Modern-Classic（黒）をカーソル直下の輝度で自動切替する。`hypr-dynamic-cursor.service` が常駐し、125ms 間隔で判定・ヒステリシス付きで切替える。
+- SDDMのWayland sessionはplain `hyprland.desktop`だけを使う.
+- 廃止済み`fetch-journal` / `journal-fetch` / `journal-push` user unitはHome Manager activationで消す.
+- Mozcユーザ辞書は`home/desktop/fcitx5.nix`と`home/desktop/mozc-user-dictionary.nix`で宣言管理する.
+- Neovimは`lualine`に`catppuccin-nvim`を使い, `wrap` / `linebreak` / `breakindent`を有効にする.
+- カーソルテーマはBibata-Modern-IceとBibata-Modern-Classicをカーソル直下の輝度で自動切替する.
+- `yazi-fork`はprivateなローカルflake inputである. ライブ復旧ではHDD内の`/home/exp/projects/yazi_fork`を`--override-input`で使う.
 
-## 復旧
+## SSDトラブル時の既定方針
 
-1. まず前の generation で起動する。
-2. それでも入れなければ boot menu から `systemd.unit=rescue.target` を付けて rescue に入る。
-3. `passwd exp` で復旧し、設定を直してから `nixos-rebuild switch --flake .#nixos` をやり直す。
+SSDを直ちに初期化しない. BUFFALO外付けHDDの`external-hdd-backup` specialisationから起動し, HDDを一時的な通常環境として使う.
 
-### 外付けHDDのinitrdをライブUSBから再生成
+外付けHDD起動時だけ, 次の復旧設定が有効になる.
 
-公式NixOSインストーラをUEFIモードで起動し、ネットワーク接続後に次の1行を実行する。インストーラには`curl`、`sudo`、`nix`、`nixos-install`が標準で含まれ、`nixos`ユーザーの`sudo`はパスワード不要。
+- ホスト名を`nixos-recovery`にする.
+- 有線LANへ`192.168.137.2/24`を追加する.
+- GitHubアカウント`expgolemclone`の公開SSH鍵を取得する.
+- `exp`への公開鍵SSHだけを許可する.
+- password, keyboard-interactive, root SSH loginを禁止する.
+- firewallでTCP 22だけを許可する.
+- `recovery-status`, `recovery-ssd-diagnose`, `recovery-restore-ssd`を提供する.
+
+VAIO側の操作と人間が行う最小手順は[`docs/remote-recovery.md`](docs/remote-recovery.md)を参照する.
+
+## 通常の設定事故からの復旧
+
+1. 前のgenerationで起動する.
+2. それでも入れなければboot menuから`systemd.unit=rescue.target`を付けてrescueへ入る.
+3. `passwd exp`で復旧し, 設定を直してから`nixos-rebuild switch --flake .#nixos`をやり直す.
+
+## 外付けHDDのinitrdをライブUSBから再生成
+
+公式NixOSインストーラをUEFIモードで起動し, ネットワーク接続後に次の1行を実行する.
+
+```console
+curl -fsSL https://raw.githubusercontent.com/expgolemclone/nix-config/main/bootstrap-live-recovery | sudo bash
+```
+
+以降はVAIOから`nixos@192.168.137.2`へSSH接続し, 次を実行する.
 
 ```console
 curl -fsSL https://raw.githubusercontent.com/expgolemclone/nix-config/main/recover-external-hdd | sudo bash
 ```
 
-スクリプトは必要なインストーラコマンドと外付けHDDのUUID・LABELを検証する。バックアップrootを読み取り可能にした後、保存済み`gh`設定を使って`gh auth status`、GitHub API上のログイン名、対象リポジトリへのwrite権限、PR #20への開始コメント投稿を実際に確認する。認証または投稿が失敗した場合は、HDDへのインストールを開始せず終了する。
+スクリプトはHDDのUUID, LABEL, filesystem, partition pairingを検証し, rootとESPをread-onlyに保ったまま固定revisionを解決する. rootだけを書き込み可能にしてシステムをbuildし, external-HDD specialisation, fstab, initrd modulesを確認した後にだけESPを書き込み可能にする. format, repartition, `fsck`は実行しない.
 
-認証と開始投稿が通った場合だけrootとESPを読み書きにし、`external-hdd-backup`を含む新しいシステムとブートエントリを生成する。終了時は成功・失敗にかかわらず、トークンとホームパスを除去した直近120行のログ要約をPR #20へ投稿する。完全なログは`/tmp`だけに残す。フォーマット、パーティション変更、`fsck -y`は実行しない。
+GitHubへのreportは既定で無効であり, 復旧の必須条件ではない. 明示的に`RECOVERY_REPORT_MODE=github`を設定した場合だけ, 保存済み`gh`認証を使ってissueへ結果を投稿する.
