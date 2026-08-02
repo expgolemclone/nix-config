@@ -34,11 +34,14 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   recovery-validation:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v6.0.2
       - uses: DeterminateSystems/determinate-nix-action@v3.21.0
@@ -149,3 +152,21 @@ jobs:
           grep -Fx 'static=success' validation-outcomes.txt
           grep -Fx 'nix-eval=success' validation-outcomes.txt
           grep -Fx 'initrd-build=success' validation-outcomes.txt
+
+      - name: Record successful recovery status
+        if: success()
+        run: |
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=success \
+            -f context=recovery-validation \
+            -f description='Recovery scripts, Nix evaluation, and initrd build passed'
+
+      - name: Record failed recovery status
+        if: failure()
+        run: |
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=failure \
+            -f context=recovery-validation \
+            -f description='Recovery validation failed; inspect uploaded diagnostics'
