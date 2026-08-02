@@ -3,9 +3,14 @@ name: Recovery validation
 on:
   pull_request:
     paths:
+      - bootstrap-live-recovery
       - recover-external-hdd
       - modules/external-hdd-backup.nix
       - modules/external-hdd-backup-initrd.nix
+      - modules/recovery-remote.nix
+      - windows/nixos-recovery.ps1
+      - docs/remote-recovery.md
+      - README.md
       - flake.nix
       - flake.lock
       - tests/verify-recovery.sh
@@ -13,9 +18,14 @@ on:
   push:
     branches: [main]
     paths:
+      - bootstrap-live-recovery
       - recover-external-hdd
       - modules/external-hdd-backup.nix
       - modules/external-hdd-backup-initrd.nix
+      - modules/recovery-remote.nix
+      - windows/nixos-recovery.ps1
+      - docs/remote-recovery.md
+      - README.md
       - flake.nix
       - flake.lock
       - tests/verify-recovery.sh
@@ -36,7 +46,17 @@ jobs:
       - name: Bash syntax
         id: syntax
         continue-on-error: true
-        run: bash -n recover-external-hdd
+        run: |
+          bash -n bootstrap-live-recovery
+          bash -n recover-external-hdd
+          bash -n tests/verify-recovery.sh
+
+      - name: PowerShell syntax
+        id: powershell
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          [scriptblock]::Create((Get-Content -Raw windows/nixos-recovery.ps1)) | Out-Null
 
       - name: ShellCheck
         id: shellcheck
@@ -45,10 +65,9 @@ jobs:
           rev="$(sed -n 's/^NIXPKGS_REV="\([0-9a-f]\{40\}\)"$/\1/p' recover-external-hdd)"
           test -n "$rev"
           set +e
-          # SC2016 is intentional: these are Markdown backticks in constant
-          # printf format strings; all data is passed as separate arguments.
           nix shell "github:NixOS/nixpkgs/$rev#shellcheck" \
-            --command shellcheck --exclude=SC2016 --format=gcc recover-external-hdd \
+            --command shellcheck --exclude=SC2016 --format=gcc \
+              bootstrap-live-recovery recover-external-hdd tests/verify-recovery.sh \
             >shellcheck.txt 2>&1
           rc=$?
           set -e
@@ -95,13 +114,14 @@ jobs:
         if: always()
         env:
           SYNTAX: ${{ steps.syntax.outcome }}
+          POWERSHELL: ${{ steps.powershell.outcome }}
           SHELLCHECK: ${{ steps.shellcheck.outcome }}
           STATIC: ${{ steps.static.outcome }}
           NIX_EVAL: ${{ steps.nix_eval.outcome }}
           INITRD_BUILD: ${{ steps.initrd_build.outcome }}
         run: |
-          printf 'syntax=%s\nshellcheck=%s\nstatic=%s\nnix-eval=%s\ninitrd-build=%s\n' \
-            "$SYNTAX" "$SHELLCHECK" "$STATIC" "$NIX_EVAL" "$INITRD_BUILD" \
+          printf 'syntax=%s\npowershell=%s\nshellcheck=%s\nstatic=%s\nnix-eval=%s\ninitrd-build=%s\n' \
+            "$SYNTAX" "$POWERSHELL" "$SHELLCHECK" "$STATIC" "$NIX_EVAL" "$INITRD_BUILD" \
             | tee validation-outcomes.txt
 
       - name: Upload diagnostics
@@ -124,6 +144,7 @@ jobs:
         if: always()
         run: |
           grep -Fx 'syntax=success' validation-outcomes.txt
+          grep -Fx 'powershell=success' validation-outcomes.txt
           grep -Fx 'shellcheck=success' validation-outcomes.txt
           grep -Fx 'static=success' validation-outcomes.txt
           grep -Fx 'nix-eval=success' validation-outcomes.txt
