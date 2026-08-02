@@ -87,7 +87,7 @@ static_checks() {
 
   initrd_hash_line="$(grep -nF 'pass built-initrd-hash' "$recover_script" | head -n 1 | cut -d: -f1)"
   esp_rw_line="$(grep -nF 'mount -o remount,rw "$TARGET/boot"' "$recover_script" | head -n 1 | cut -d: -f1)"
-  install_line="$(grep -n '^nixos-install \\' "$recover_script" | head -n 1 | cut -d: -f1)"
+  install_line="$(grep -nF 'nixos-install \' "$recover_script" | head -n 1 | cut -d: -f1)"
   [ -n "$initrd_hash_line" ] && [ -n "$esp_rw_line" ] && [ -n "$install_line" ]
   if ! (( initrd_hash_line < esp_rw_line && esp_rw_line < install_line )); then
     printf 'unsafe ordering: initrd-hash=%s esp-rw=%s install=%s\n' \
