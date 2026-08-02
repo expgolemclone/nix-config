@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+GITHUB_ACCOUNT="expgolemclone"
+RECOVERY_ADDRESS="192.168.137.2/24"
+RECOVERY_USER="nixos"
+
+fail() {
+  printf 'bootstrap-live-recovery: %s\n' "$*" >&2
+  exit 1
+}
+
+[ "${EUID:-$(id -u)}" -eq 0 ] || fail 'run as root'
+
+required_commands=(awk curl cut getent grep hostnamectl install ip mktemp nmcli ssh-keygen sshd systemctl)
+for command_name in "${required_commands[@]}"; do
+  command -v "$command_name" >/dev/null || fail "missing command: $command_name"
+done
+
+mapfile -t interfaces < <(
+  nmcli -t -f DEVICE,TYPE,STATE device status \
+    | awk -F: '$2 == "ethernet" && ($3 == "connected" || $3 == "connecting") { print $1 }'
+)
+[ "${#interfaces[@]}" -eq 1 ] \
+  || fail "expected exactly one connected Ethernet interface, found ${#interfaces[@]}"
+interface="${interfaces[0]}"
+ip address replace "$RECOVERY_ADDRESS" dev "$interface"
+
+home_dir="$(getent passwd "$RECOVERY_USER" | cut -d: -f6)"
+[ -n "$home_dir" ] || fail "could not resolve home directory for $RECOVERY_USER"
+install -d -m 0700 -o "$RECOVERY_USER" -g users "$home_dir/.ssh"
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+curl \
+  --fail \
+  --silent \
+  --show-error \
+  --location \
+  --proto '=https' \
+  --tlsv1.2 \
+  --connect-timeout 10 \
+  --max-time 30 \
+  "https://github.com/$GITHUB_ACCOUNT.keys" \
+  --output "$tmp"
+
+[ -s "$tmp" ] || fail "GitHub returned no public SSH keys for $GITHUB_ACCOUNT"
+if grep -Ev \
+  '^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com) [A-Za-z0-9+/=]+$' \
+  "$tmp" >/dev/null; then
+  fail 'GitHub returned an unsupported or malformed SSH key line'
+fi
+ssh-keygen -l -f "$tmp" >/dev/null
+install -m 0600 -o "$RECOVERY_USER" -g users "$tmp" "$home_dir/.ssh/authorized_keys"
+
+install -d -m 0755 /etc/ssh/sshd_config.d
+cat > /etc/ssh/sshd_config.d/99-recovery.conf <<'CONFIG'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+AuthenticationMethods publickey
+AllowUsers nixos
+CONFIG
+
+sshd -t
+hostnamectl hostname nixos-live-recovery
+systemctl restart sshd
+
+printf 'Live recovery SSH is ready.\n'
+printf 'Connect from VAIO: ssh %s@192.168.137.2\n' "$RECOVERY_USER"
+printf 'Then run: curl -fsSL https://raw.githubusercontent.com/expgolemclone/nix-config/main/recover-external-hdd | sudo bash\n'
