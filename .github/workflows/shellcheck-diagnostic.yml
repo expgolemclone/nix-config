@@ -1,0 +1,40 @@
+name: Focused ShellCheck diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/shellcheck-diagnostic.yml
+
+permissions:
+  contents: write
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+      - uses: DeterminateSystems/determinate-nix-action@v3.21.0
+      - name: Run and persist ShellCheck output
+        shell: bash
+        run: |
+          set -euo pipefail
+          rev="$(sed -n 's/^NIXPKGS_REV="\([0-9a-f]\{40\}\)"$/\1/p' recover-external-hdd)"
+          test -n "$rev"
+          set +e
+          nix shell "github:NixOS/nixpkgs/$rev#shellcheck" \
+            --command shellcheck --exclude=SC2016 --format=gcc \
+              bootstrap-live-recovery recover-external-hdd tests/verify-recovery.sh \
+            > /tmp/shellcheck.log 2>&1
+          rc=$?
+          set -e
+          printf 'exit-code: %s\n' "$rc" >> /tmp/shellcheck.log
+          cat /tmp/shellcheck.log
+          content="$(base64 -w 0 /tmp/shellcheck.log)"
+          gh api --method PUT \
+            "repos/$GITHUB_REPOSITORY/contents/.github/shellcheck.log" \
+            -f message='Record focused ShellCheck output' \
+            -f content="$content" \
+            -f branch=main
