@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   statuses: write
 
 jobs:
@@ -22,27 +22,45 @@ jobs:
       - uses: DeterminateSystems/determinate-nix-action@v3.21.0
 
       - name: Run jj bookmark list and enforce main only
+        id: validate
         shell: bash
         run: |
+          set +e
+          {
+            set -euo pipefail
+            git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+            nix shell nixpkgs#jujutsu --command bash -euo pipefail -c '
+              jj git init --colocate .
+              jj git import
+              jj bookmark list --all-remotes | tee /tmp/jj-bookmark-list.txt
+
+              mapfile -t remote_refs < <(
+                git for-each-ref --format="%(refname:strip=3)" refs/remotes/origin \
+                  | grep -v "^HEAD$" \
+                  | sort
+              )
+              printf "remote refs:\n"
+              printf "- %s\n" "${remote_refs[@]}"
+
+              [ "${#remote_refs[@]}" -eq 1 ]
+              [ "${remote_refs[0]}" = main ]
+              grep -Eq "(^|[[:space:]])main(@origin)?(:|[[:space:]])" /tmp/jj-bookmark-list.txt
+            '
+          } 2>&1 | tee /tmp/jj-bookmark-validation.log
+          rc=${PIPESTATUS[0]}
+          printf 'exit-code: %s\n' "$rc" | tee -a /tmp/jj-bookmark-validation.log
+          exit "$rc"
+
+      - name: Persist failed diagnostics
+        if: failure()
+        run: |
           set -euo pipefail
-          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
-          nix shell nixpkgs#jujutsu --command bash -euo pipefail -c '
-            jj git init --colocate .
-            jj git import
-            jj bookmark list --all-remotes | tee /tmp/jj-bookmark-list.txt
-
-            mapfile -t remote_refs < <(
-              git for-each-ref --format="%(refname:strip=3)" refs/remotes/origin \
-                | grep -v "^HEAD$" \
-                | sort
-            )
-            printf "remote refs:\n"
-            printf "- %s\n" "${remote_refs[@]}"
-
-            [ "${#remote_refs[@]}" -eq 1 ]
-            [ "${remote_refs[0]}" = main ]
-            grep -Eq "(^|[[:space:]])main(@origin)?(:|[[:space:]])" /tmp/jj-bookmark-list.txt
-          '
+          content="$(base64 -w 0 /tmp/jj-bookmark-validation.log)"
+          gh api --method PUT \
+            "repos/$GITHUB_REPOSITORY/contents/.github/jj-bookmark-validation.log" \
+            -f message='Record jj bookmark validation failure' \
+            -f content="$content" \
+            -f branch=main
 
       - name: Record successful bookmark status
         if: success()
