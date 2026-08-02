@@ -18,12 +18,12 @@
   };
 
   outputs = { nixpkgs, home-manager, nixvim, yazi-fork, ... }: {
-    # Native NixOS
     nixosConfigurations."nixos" = nixpkgs.lib.nixosSystem {
       system = "x86_64-linux";
       modules = [
         ./modules/external-hdd-backup.nix
         ./modules/external-hdd-backup-initrd.nix
+        ./modules/recovery-remote.nix
         ./modules/gc.nix
         ./hosts/nixos/configuration.nix
         home-manager.nixosModules.home-manager
