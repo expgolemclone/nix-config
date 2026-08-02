@@ -1,0 +1,30 @@
+unpacking 'https://flakehub.com/f/DeterminateSystems/nixpkgs-weekly/0.1' into the Git cache...
+these 7 paths will be fetched (19.8 MiB download, 73.0 MiB unpacked):
+  /nix/store/8lahnh9pn3lrrnhax5nk7ibvjcbjmnkm-gcc-15.2.0-lib
+  /nix/store/wlj7fzgbchbxhd6hplwm2dwl15gizcn5-gcc-15.2.0-libgcc
+  /nix/store/ias8xacs1h3jy7xgwi2awvim61k2ji6c-glibc-2.42-67
+  /nix/store/3914vvc5vg463z3z8l9q2ksb960fa2gf-jujutsu-0.43.0
+  /nix/store/clqknm3pgln8pxb6n7iamffk313nr91r-libidn2-2.3.8
+  /nix/store/dxszpyw0pn7h1cxi1y6l33nmwk7f5knn-libunistring-1.4.2
+  /nix/store/hps7pxvcgq32x46yx5a2nx53js5j41vb-xgcc-15.2.0-libgcc
+copying path '/nix/store/wlj7fzgbchbxhd6hplwm2dwl15gizcn5-gcc-15.2.0-libgcc' from 'https://cache.nixos.org'...
+copying path '/nix/store/hps7pxvcgq32x46yx5a2nx53js5j41vb-xgcc-15.2.0-libgcc' from 'https://cache.nixos.org'...
+copying path '/nix/store/dxszpyw0pn7h1cxi1y6l33nmwk7f5knn-libunistring-1.4.2' from 'https://cache.nixos.org'...
+copying path '/nix/store/clqknm3pgln8pxb6n7iamffk313nr91r-libidn2-2.3.8' from 'https://cache.nixos.org'...
+copying path '/nix/store/ias8xacs1h3jy7xgwi2awvim61k2ji6c-glibc-2.42-67' from 'https://cache.nixos.org'...
+copying path '/nix/store/8lahnh9pn3lrrnhax5nk7ibvjcbjmnkm-gcc-15.2.0-lib' from 'https://cache.nixos.org'...
+copying path '/nix/store/3914vvc5vg463z3z8l9q2ksb960fa2gf-jujutsu-0.43.0' from 'https://cache.nixos.org'...
+Done importing changes from the underlying Git repo.
+Hint: The following remote bookmarks aren't associated with the existing local bookmarks:
+  main@origin
+Hint: Run the following command to keep local bookmarks updated on future pulls:
+  jj bookmark track main --remote=origin
+Initialized repo in "."
+Nothing changed.
+main: zqxrwsuu 4796d165 Capture jj bookmark validation diagnostics
+  @git: zqxrwsuu 4796d165 Capture jj bookmark validation diagnostics
+main@origin: zqxrwsuu 4796d165 Capture jj bookmark validation diagnostics
+remote refs:
+bash: line 12: printf: - : invalid option
+printf: usage: printf [-v var] format [arguments]
+exit-code: 2
