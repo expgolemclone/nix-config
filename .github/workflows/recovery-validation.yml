@@ -33,7 +33,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   statuses: write
 
 jobs:
@@ -140,6 +140,18 @@ jobs:
               -f context="recovery/$gate" \
               -f description="$gate gate: $outcome"
           done < validation-outcomes.txt
+
+      - name: Persist ShellCheck failure
+        if: steps.shellcheck.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          tail -n 200 shellcheck.txt > /tmp/shellcheck.log
+          content="$(base64 -w 0 /tmp/shellcheck.log)"
+          gh api --method PUT \
+            "repos/$GITHUB_REPOSITORY/contents/.github/shellcheck.log" \
+            -f message='Record ShellCheck failure' \
+            -f content="$content" \
+            -f branch=main
 
       - name: Upload diagnostics
         if: always()
