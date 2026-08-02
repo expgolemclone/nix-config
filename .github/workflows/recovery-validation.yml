@@ -33,7 +33,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   statuses: write
 
 jobs:
@@ -153,6 +153,25 @@ jobs:
           grep -Fx 'nix-eval=success' validation-outcomes.txt
           grep -Fx 'initrd-build=success' validation-outcomes.txt
 
+      - name: Persist failed diagnostics
+        if: failure()
+        run: |
+          set -euo pipefail
+          {
+            printf '## validation-outcomes.txt\n'
+            cat validation-outcomes.txt 2>/dev/null || true
+            for file in shellcheck.txt static-validation.txt nix-evaluation.txt initrd-build.txt; do
+              printf '\n## %s\n' "$file"
+              cat "$file" 2>/dev/null || printf 'missing\n'
+            done
+          } > /tmp/recovery-validation.log
+          content="$(base64 -w 0 /tmp/recovery-validation.log)"
+          gh api --method PUT \
+            "repos/$GITHUB_REPOSITORY/contents/.github/recovery-validation.log" \
+            -f message='Record recovery validation failure' \
+            -f content="$content" \
+            -f branch=main
+
       - name: Record successful recovery status
         if: success()
         run: |
@@ -169,4 +188,4 @@ jobs:
             "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state=failure \
             -f context=recovery-validation \
-            -f description='Recovery validation failed; inspect uploaded diagnostics'
+            -f description='Recovery validation failed; inspect .github/recovery-validation.log'
