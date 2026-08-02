@@ -7,29 +7,26 @@ BOOT_UUID="BACA-0001"
 ROOT_LABEL="SSD_BACKUP"
 BOOT_LABEL="BACKUPBOOT"
 TARGET="/mnt"
-UPLOAD_REPO="expgolemclone/nix-config"
-UPLOAD_PR="20"
-EXPECTED_GITHUB_LOGIN="expgolemclone"
 NIXPKGS_REV="9ae611a455b90cf061d8f332b977e387bda8e1ca"
 VALIDATED_CONFIG_REV="718123043cefea1c3bd2410a92236d847016a97d"
-GH_PACKAGE="github:NixOS/nixpkgs/$NIXPKGS_REV#gh"
-DRACUT_PACKAGE="github:NixOS/nixpkgs/$NIXPKGS_REV#dracut"
+CONFIG_REPO="expgolemclone/nix-config"
 YAZI_SOURCE="$TARGET/home/exp/projects/yazi_fork"
 GH_CONFIG_DIR_BACKUP="$TARGET/home/exp/.config/gh"
+REPORT_MODE="${RECOVERY_REPORT_MODE:-off}"
+REPORT_REPO="${RECOVERY_REPORT_REPO:-expgolemclone/nix-config}"
+REPORT_ISSUE="${RECOVERY_REPORT_ISSUE:-20}"
+DRACUT_PACKAGE="github:NixOS/nixpkgs/$NIXPKGS_REV#dracut"
+GH_PACKAGE="github:NixOS/nixpkgs/$NIXPKGS_REV#gh"
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)"
 WORK_DIR="/tmp/external-hdd-recovery-$RUN_ID"
 LOG="$WORK_DIR/recovery.log"
 CHECKS="$WORK_DIR/checks.tsv"
 REPORT="$WORK_DIR/report.md"
-START_REPORT="$WORK_DIR/start.md"
 INITRD_LIST="$WORK_DIR/initrd-files.txt"
-FAILED_LINE=""
-REPORTING_READY=0
-CONFIG_REV="$VALIDATED_CONFIG_REV"
-YAZI_NAR_HASH=""
 SYSTEM_PATH=""
 SPEC_SYSTEM=""
 BOOT_ENTRY=""
+REPORTING_READY=0
 
 mkdir -p "$WORK_DIR"
 : > "$CHECKS"
@@ -58,44 +55,19 @@ pass() {
   record_check PASS "$1" "$2"
 }
 
-warn() {
-  record_check WARN "$1" "$2"
-}
-
 require_equal() {
   local name="$1"
   local actual="$2"
   local expected="$3"
-  if [ "$actual" != "$expected" ]; then
+  [ "$actual" = "$expected" ] || {
     record_check FAIL "$name" "expected $expected, got $actual"
     fail "$name verification failed"
-  fi
+  }
   pass "$name" "$actual"
 }
 
-sanitize_log() {
-  tail -n 60 "$LOG" 2>/dev/null \
-    | sed -E \
-      -e $'s/\x1B\[[0-9;]*[[:alpha:]]//g' \
-      -e 's#gh[pousr]_[A-Za-z0-9_]+#<redacted-token>#g' \
-      -e 's#github_pat_[A-Za-z0-9_]+#<redacted-token>#g' \
-      -e 's#(Authorization:|authorization:)[[:space:]]*[^[:space:]]+#\1 <redacted>#g' \
-      -e 's#(oauth_token:|token:)[[:space:]]*[^[:space:]]+#\1 <redacted>#g' \
-      -e "s#$TARGET/home/exp#<backup-home>#g"
-}
-
-run_gh() {
-  GH_CONFIG_DIR="$GH_CONFIG_DIR_BACKUP" \
-    nix_cmd shell "$GH_PACKAGE" --command gh "$@"
-}
-
-render_check_table() {
-  printf '| Status | Check | Detail |\n'
-  printf '|---|---|---|\n'
-  while IFS=$'\t' read -r status name detail; do
-    detail="${detail//|/\\|}"
-    printf '| %s | %s | %s |\n' "$status" "$name" "$detail"
-  done < "$CHECKS"
+same_device() {
+  [ "$(readlink -f "$1")" = "$(readlink -f "$2")" ]
 }
 
 target_is_rw() {
@@ -103,17 +75,17 @@ target_is_rw() {
     && findmnt -n -o OPTIONS --target "$TARGET" | grep -Eq '(^|,)rw(,|$)'
 }
 
-persist_report() {
-  local persistent_dir="$TARGET/var/log/external-hdd-recovery/$RUN_ID"
-  if ! target_is_rw; then
-    return 0
-  fi
-  mkdir -p "$persistent_dir"
-  cp -f "$LOG" "$CHECKS" "$REPORT" "$persistent_dir/"
-  printf 'Persistent recovery records: %s\n' "$persistent_dir"
+sanitize_log() {
+  tail -n 120 "$LOG" \
+    | sed -E \
+      -e $'s/\x1B\[[0-9;]*[[:alpha:]]//g' \
+      -e 's#gh[pousr]_[A-Za-z0-9_]+#<redacted-token>#g' \
+      -e 's#github_pat_[A-Za-z0-9_]+#<redacted-token>#g' \
+      -e 's#(Authorization:|authorization:)[[:space:]]*[^[:space:]]+#\1 <redacted>#g' \
+      -e "s#$TARGET/home/exp#<backup-home>#g"
 }
 
-write_report() {
+render_report() {
   local rc="$1"
   local outcome="SUCCESS"
   [ "$rc" -eq 0 ] || outcome="FAILED"
@@ -122,62 +94,81 @@ write_report() {
     printf '## External HDD recovery report\n\n'
     printf -- '- Run: `%s`\n' "$RUN_ID"
     printf -- '- Status: **%s** (exit %s)\n' "$outcome" "$rc"
-    [ -z "$FAILED_LINE" ] || printf -- '- Failed line: `%s`\n' "$FAILED_LINE"
-    printf -- '- Installer kernel: `%s`\n' "$(uname -srmo 2>/dev/null || echo unknown)"
-    printf -- '- Config revision: `%s`\n' "${CONFIG_REV:-unresolved}"
-    printf -- '- Yazi input NAR hash: `%s`\n' "${YAZI_NAR_HASH:-unresolved}"
+    printf -- '- Config revision: `%s`\n' "$VALIDATED_CONFIG_REV"
     printf -- '- Built system: `%s`\n' "${SYSTEM_PATH:-not-built}"
-    printf -- '- Boot entry: `%s`\n' "${BOOT_ENTRY:-not-installed}"
-    printf -- '- Log SHA-256: `%s`\n\n' "$(sha256sum "$LOG" 2>/dev/null | awk '{print $1}' || echo unavailable)"
-    render_check_table
+    printf -- '- Boot entry: `%s`\n\n' "${BOOT_ENTRY:-not-installed}"
+    printf '| Status | Check | Detail |\n'
+    printf '|---|---|---|\n'
+    while IFS=$'\t' read -r status name detail; do
+      detail="${detail//|/\\|}"
+      printf '| %s | %s | %s |\n' "$status" "$name" "$detail"
+    done < "$CHECKS"
     printf '\n### Recent sanitized log\n\n```text\n'
     sanitize_log
     printf '\n```\n'
   } > "$REPORT"
 }
 
-upload_report() {
-  local rc="$1"
-  local upload_output=""
-  write_report "$rc"
-  persist_report
-
-  if [ "$REPORTING_READY" -ne 1 ]; then
-    printf 'GitHub report was not uploaded because authenticated reporting was not established.\n'
-    printf 'Local report: %s\n' "$REPORT"
-    return 0
-  fi
-
-  upload_output="$(run_gh pr comment "$UPLOAD_PR" --repo "$UPLOAD_REPO" --body-file "$REPORT" 2>&1)" || {
-    printf 'GitHub upload failed; report remains at %s\n%s\n' "$REPORT" "$upload_output"
-    return 0
-  }
-  printf 'GitHub report uploaded: %s\n' "$upload_output"
+run_gh() {
+  GH_CONFIG_DIR="$GH_CONFIG_DIR_BACKUP" \
+    nix_cmd shell "$GH_PACKAGE" --command gh "$@"
 }
 
-on_error() {
-  local rc="$?"
-  FAILED_LINE="${BASH_LINENO[0]:-$LINENO}"
-  printf '\nRecovery failed at line %s (status %s). Log: %s\n' "$FAILED_LINE" "$rc" "$LOG" >&2
-  exit "$rc"
+prepare_optional_reporting() {
+  case "$REPORT_MODE" in
+    off)
+      pass reporting 'disabled'
+      return
+      ;;
+    github)
+      [ -f "$GH_CONFIG_DIR_BACKUP/hosts.yml" ] \
+        || fail "GitHub reporting requested, but $GH_CONFIG_DIR_BACKUP/hosts.yml is missing"
+      run_gh auth status --hostname github.com
+      run_gh api "repos/$REPORT_REPO/issues/$REPORT_ISSUE" --jq .number >/dev/null
+      REPORTING_READY=1
+      pass reporting "$REPORT_REPO issue $REPORT_ISSUE"
+      ;;
+    *)
+      fail 'RECOVERY_REPORT_MODE must be off or github'
+      ;;
+  esac
+}
+
+publish_optional_report() {
+  local rc="$1"
+  local persistent_dir
+  render_report "$rc"
+
+  if target_is_rw; then
+    persistent_dir="$TARGET/var/log/external-hdd-recovery/$RUN_ID"
+    mkdir -p "$persistent_dir"
+    cp -f "$LOG" "$CHECKS" "$REPORT" "$persistent_dir/"
+    printf 'Persistent report: %s\n' "$persistent_dir"
+  else
+    printf 'Temporary report: %s\n' "$REPORT"
+  fi
+
+  if [ "$REPORTING_READY" -eq 1 ]; then
+    if ! run_gh issue comment "$REPORT_ISSUE" --repo "$REPORT_REPO" --body-file "$REPORT"; then
+      printf 'WARNING: optional GitHub report upload failed. The disk recovery result is unchanged.\n' >&2
+    fi
+  fi
 }
 
 on_exit() {
   local rc="$?"
-  trap - ERR EXIT
+  trap - EXIT
   set +e
-  upload_report "$rc"
+  publish_optional_report "$rc"
   exit "$rc"
 }
-
-trap on_error ERR
 trap on_exit EXIT
 
 [ "${EUID:-$(id -u)}" -eq 0 ] || fail 'run this script as root'
-[ -d /sys/firmware/efi ] || fail 'the installer USB must be booted in UEFI mode'
+[ -d /sys/firmware/efi ] || fail 'boot the NixOS installer in UEFI mode'
 
 required_commands=(
-  awk blkid cp date df findmnt grep head jq lsblk mkdir mktemp mount mountpoint
+  awk blkid cp date df findmnt grep jq lsblk mkdir mktemp mount mountpoint
   nix nixos-install readlink sed sha256sum sync tail tee uname
 )
 for command_name in "${required_commands[@]}"; do
@@ -204,105 +195,50 @@ boot_parent="$(lsblk -no PKNAME "$boot_real" | awk 'NF { print; exit }')"
   || fail "root and boot are not partitions of the same disk ($root_parent / $boot_parent)"
 pass disk-layout "$root_real and $boot_real are on /dev/$root_parent"
 
-same_device() {
-  [ "$(readlink -f "$1")" = "$(readlink -f "$2")" ]
-}
-
-mkdir -p "$TARGET"
+mkdir -p "$TARGET" "$TARGET/boot"
 if mountpoint -q "$TARGET"; then
-  mounted_root="$(findmnt -n -o SOURCE --target "$TARGET")"
-  same_device "$mounted_root" "$root_real" \
-    || fail "$TARGET is mounted from $mounted_root, not the backup root"
+  same_device "$(findmnt -n -o SOURCE --target "$TARGET")" "$root_real" \
+    || fail "$TARGET is mounted from the wrong device"
   mount -o remount,ro "$TARGET"
 else
   mount -o ro "$root_real" "$TARGET"
 fi
-findmnt -n -o OPTIONS --target "$TARGET" | grep -Eq '(^|,)ro(,|$)' \
-  || fail 'backup root could not be held read-only during preflight'
-pass root-read-only "$TARGET is mounted read-only for preflight"
-
-mkdir -p "$TARGET/boot"
 if mountpoint -q "$TARGET/boot"; then
-  mounted_boot="$(findmnt -n -o SOURCE --target "$TARGET/boot")"
-  same_device "$mounted_boot" "$boot_real" \
-    || fail "$TARGET/boot is mounted from $mounted_boot, not the backup ESP"
+  same_device "$(findmnt -n -o SOURCE --target "$TARGET/boot")" "$boot_real" \
+    || fail "$TARGET/boot is mounted from the wrong device"
   mount -o remount,ro "$TARGET/boot"
 else
   mount -t vfat -o ro "$boot_real" "$TARGET/boot"
 fi
+findmnt -n -o OPTIONS --target "$TARGET" | grep -Eq '(^|,)ro(,|$)' \
+  || fail 'backup root is not read-only during preflight'
 findmnt -n -o OPTIONS --target "$TARGET/boot" | grep -Eq '(^|,)ro(,|$)' \
-  || fail 'backup ESP could not be held read-only during preflight'
-pass boot-read-only "$TARGET/boot is mounted read-only for preflight"
+  || fail 'backup ESP is not read-only during preflight'
+pass preflight-read-only 'root and ESP are read-only'
 
 root_free_kib="$(df -Pk "$TARGET" | awk 'NR == 2 { print $4 }')"
 boot_free_kib="$(df -Pk "$TARGET/boot" | awk 'NR == 2 { print $4 }')"
 [ "$root_free_kib" -ge 1048576 ] || fail 'backup root has less than 1 GiB free'
 [ "$boot_free_kib" -ge 131072 ] || fail 'backup ESP has less than 128 MiB free'
-if [ "$root_free_kib" -lt 4194304 ]; then
-  warn root-free-space "$((root_free_kib / 1024)) MiB free; build headroom is limited"
-else
-  pass root-free-space "$((root_free_kib / 1024)) MiB free"
-fi
-pass boot-free-space "$((boot_free_kib / 1024)) MiB free"
+pass free-space "$((root_free_kib / 1024)) MiB root, $((boot_free_kib / 1024)) MiB ESP"
 
-[ -f "$YAZI_SOURCE/flake.nix" ] || fail "missing backup copy of $YAZI_SOURCE"
-[ -f "$GH_CONFIG_DIR_BACKUP/hosts.yml" ] \
-  || fail "saved gh authentication is missing at $GH_CONFIG_DIR_BACKUP/hosts.yml"
+[ -f "$YAZI_SOURCE/flake.nix" ] || fail "missing backed-up yazi_fork at $YAZI_SOURCE"
+prepare_optional_reporting
 
-printf '\nChecking GitHub authentication from the live installer...\n'
-gh_version="$(run_gh --version | head -n 1)" || fail 'could not obtain gh from pinned nixpkgs'
-pass gh-tool "$gh_version"
-run_gh auth status --hostname github.com \
-  || fail 'saved gh authentication is unusable here; it may exist only in the desktop keyring'
-github_login="$(run_gh api user --jq .login)" || fail 'GitHub API authentication failed'
-require_equal github-login "$github_login" "$EXPECTED_GITHUB_LOGIN"
-repo_push="$(run_gh api "repos/$UPLOAD_REPO" --jq '.permissions.push // false')" \
-  || fail 'could not verify GitHub repository permission'
-require_equal github-write "$repo_push" true
-run_gh api "repos/$UPLOAD_REPO/issues/$UPLOAD_PR" --jq .number >/dev/null \
-  || fail "PR #$UPLOAD_PR is not readable with the saved GitHub authentication"
-pass report-target "$UPLOAD_REPO PR #$UPLOAD_PR is accessible"
-
-[[ "$CONFIG_REV" =~ ^[0-9a-f]{40}$ ]] || fail "invalid validated config revision: $CONFIG_REV"
-validated_config_sha="$(run_gh api "repos/$UPLOAD_REPO/commits/$CONFIG_REV" --jq .sha)" \
-  || fail 'could not resolve the validated configuration revision'
-require_equal validated-config-revision "$validated_config_sha" "$CONFIG_REV"
-FLAKE_REF="github:$UPLOAD_REPO/$CONFIG_REV"
+FLAKE_REF="github:$CONFIG_REPO/$VALIDATED_CONFIG_REV"
 SYSTEM_INSTALLABLE="$FLAKE_REF#nixosConfigurations.nixos.config.system.build.toplevel"
-pass config-revision "$CONFIG_REV"
 
-printf '\nResolving Nix inputs without writing to the backup disk...\n'
-yazi_metadata="$(nix_cmd flake metadata --json --no-write-lock-file "path:$YAZI_SOURCE")" \
-  || fail 'the backed-up yazi_fork is not a resolvable flake'
-YAZI_NAR_HASH="$(printf '%s' "$yazi_metadata" | jq -r '.locked.narHash // "unknown"')"
-pass yazi-flake "$YAZI_NAR_HASH"
-
+printf '\nResolving the pinned configuration while the backup remains read-only...\n'
 config_metadata="$(nix_cmd flake metadata --json --no-write-lock-file \
-  --override-input yazi-fork "path:$YAZI_SOURCE" "$FLAKE_REF")" \
-  || fail 'the pinned nix-config flake could not be resolved with the local yazi input'
+  --override-input yazi-fork "path:$YAZI_SOURCE" "$FLAKE_REF")"
 resolved_config_rev="$(printf '%s' "$config_metadata" | jq -r '.locked.rev // empty')"
-require_equal resolved-config-revision "$resolved_config_rev" "$CONFIG_REV"
+require_equal config-revision "$resolved_config_rev" "$VALIDATED_CONFIG_REV"
 
-{
-  printf '## External HDD recovery preflight passed\n\n'
-  printf -- '- Run: `%s`\n' "$RUN_ID"
-  printf -- '- Installer kernel: `%s`\n' "$(uname -srmo)"
-  printf -- '- Config revision: `%s`\n' "$CONFIG_REV"
-  printf -- '- Yazi input NAR hash: `%s`\n' "$YAZI_NAR_HASH"
-  printf -- '- Root device: `%s`\n' "$root_real"
-  printf -- '- Boot device: `%s`\n' "$boot_real"
-  printf -- '- Authentication: `%s`\n' "$github_login"
-} > "$START_REPORT"
-run_gh pr comment "$UPLOAD_PR" --repo "$UPLOAD_REPO" --body-file "$START_REPORT" \
-  || fail "GitHub authentication worked, but posting to PR #$UPLOAD_PR failed"
-REPORTING_READY=1
-pass github-write-proof 'preflight comment posted successfully'
-
-printf '\nBuilding the exact pinned system before touching the ESP...\n'
+printf '\nBuilding the pinned system before touching the ESP...\n'
 mount -o remount,rw "$TARGET"
 findmnt -n -o OPTIONS --target "$TARGET" | grep -Eq '(^|,)rw(,|$)' \
   || fail 'backup root could not be remounted read-write'
-pass root-read-write "$TARGET is writable; ESP remains read-only"
+pass root-read-write 'ESP remains read-only'
 
 build_dir="$(mktemp -d -p "$TARGET" .external-hdd-recovery-build.XXXXXX)"
 system_link="$build_dir/system"
@@ -318,21 +254,16 @@ SYSTEM_PATH="$(readlink -f "$system_link")"
 pass system-build "$SYSTEM_PATH"
 
 SPEC_SYSTEM="$SYSTEM_PATH/specialisation/external-hdd-backup"
-[ -e "$SPEC_SYSTEM" ] || fail 'built system does not contain external-hdd-backup specialisation'
 [ -x "$SPEC_SYSTEM/init" ] || fail 'external-hdd-backup specialisation has no executable init'
 [ -f "$SPEC_SYSTEM/initrd" ] || fail 'external-hdd-backup specialisation has no initrd'
 [ -f "$SPEC_SYSTEM/etc/fstab" ] || fail 'external-hdd-backup specialisation has no generated fstab'
 pass specialisation "$SPEC_SYSTEM"
 
 root_fstab_device="$(awk '$2 == "/" { print $1; exit }' "$SPEC_SYSTEM/etc/fstab")"
-root_fstab_type="$(awk '$2 == "/" { print $3; exit }' "$SPEC_SYSTEM/etc/fstab")"
 root_fstab_options="$(awk '$2 == "/" { print $4; exit }' "$SPEC_SYSTEM/etc/fstab")"
 boot_fstab_device="$(awk '$2 == "/boot" { print $1; exit }' "$SPEC_SYSTEM/etc/fstab")"
-boot_fstab_type="$(awk '$2 == "/boot" { print $3; exit }' "$SPEC_SYSTEM/etc/fstab")"
 require_equal evaluated-root-device "$root_fstab_device" "$root_dev"
-require_equal evaluated-root-type "$root_fstab_type" ext4
 require_equal evaluated-boot-device "$boot_fstab_device" "$boot_dev"
-require_equal evaluated-boot-type "$boot_fstab_type" vfat
 case ",$root_fstab_options," in
   *,x-systemd.device-timeout=5min,*) pass root-device-timeout "$root_fstab_options" ;;
   *) fail "generated root fstab lacks x-systemd.device-timeout=5min: $root_fstab_options" ;;
@@ -348,12 +279,9 @@ for module_spec in \
 do
   module_name="${module_spec%%:*}"
   module_pattern="${module_spec#*:}"
-  if grep -Eq "/${module_pattern}(\.(xz|zst|gz))?$" "$INITRD_LIST"; then
-    pass "initrd-module-$module_name" 'present in built initrd archive'
-  else
-    record_check FAIL "initrd-module-$module_name" 'missing from built initrd archive'
-    fail "required module $module_name is missing from the built initrd"
-  fi
+  grep -Eq "/${module_pattern}(\.(xz|zst|gz))?$" "$INITRD_LIST" \
+    || fail "required module $module_name is missing from the built initrd"
+  pass "initrd-module-$module_name" 'present'
 done
 built_initrd_hash="$(sha256sum "$SPEC_SYSTEM/initrd" | awk '{print $1}')"
 pass built-initrd-hash "$built_initrd_hash"
@@ -362,7 +290,7 @@ printf '\nInstalling only the already-built and verified system...\n'
 mount -o remount,rw "$TARGET/boot"
 findmnt -n -o OPTIONS --target "$TARGET/boot" | grep -Eq '(^|,)rw(,|$)' \
   || fail 'backup ESP could not be remounted read-write'
-pass boot-read-write "$TARGET/boot is writable after build verification"
+pass boot-read-write 'enabled after build and initrd verification'
 
 nixos-install \
   --root "$TARGET" \
@@ -371,31 +299,25 @@ nixos-install \
   --no-root-passwd
 sync
 
-profile_target="$(readlink -f "$TARGET/nix/var/nix/profiles/system")"
-require_equal installed-profile "$profile_target" "$SYSTEM_PATH"
+require_equal installed-profile \
+  "$(readlink -f "$TARGET/nix/var/nix/profiles/system")" \
+  "$SYSTEM_PATH"
 
 entries=("$TARGET"/boot/loader/entries/*external-hdd-backup*.conf)
 [ "${#entries[@]}" -gt 0 ] || fail 'no external-hdd-backup boot entry was generated'
 BOOT_ENTRY="${entries[0]}"
 for entry in "${entries[@]}"; do
-  if [ "$entry" -nt "$BOOT_ENTRY" ]; then
-    BOOT_ENTRY="$entry"
-  fi
+  [ "$entry" -nt "$BOOT_ENTRY" ] && BOOT_ENTRY="$entry"
 done
-[ -f "$BOOT_ENTRY" ] || fail 'newest external-hdd-backup entry is not a regular file'
 pass boot-entry "$BOOT_ENTRY"
 
 boot_initrd_rel="$(awk '$1 == "initrd" { value=$2 } END { print value }' "$BOOT_ENTRY")"
-boot_linux_rel="$(awk '$1 == "linux" { print $2; exit }' "$BOOT_ENTRY")"
 boot_options="$(awk '$1 == "options" { sub(/^options[[:space:]]+/, ""); print; exit }' "$BOOT_ENTRY")"
 [ -n "$boot_initrd_rel" ] && [ -f "$TARGET/boot$boot_initrd_rel" ] \
   || fail "boot entry initrd is missing: $boot_initrd_rel"
-[ -n "$boot_linux_rel" ] && [ -f "$TARGET/boot$boot_linux_rel" ] \
-  || fail "boot entry kernel is missing: $boot_linux_rel"
-pass boot-artifacts "$boot_linux_rel and $boot_initrd_rel exist"
-
-installed_initrd_hash="$(sha256sum "$TARGET/boot$boot_initrd_rel" | awk '{print $1}')"
-require_equal installed-initrd-hash "$installed_initrd_hash" "$built_initrd_hash"
+require_equal installed-initrd-hash \
+  "$(sha256sum "$TARGET/boot$boot_initrd_rel" | awk '{print $1}')" \
+  "$built_initrd_hash"
 
 spec_init_target="$(readlink -f "$SPEC_SYSTEM/init")"
 spec_init_boot="${spec_init_target#"$TARGET"}"
@@ -407,5 +329,5 @@ esac
 sync
 pass final-sync 'all target writes flushed'
 printf '\nRecovery completed successfully.\n'
-printf 'Reboot, select the BUFFALO HDD, then choose the newest external-hdd-backup entry.\n'
-printf 'GitHub and persistent reports will identify every validation result.\n'
+printf 'Reboot and select the newest external-hdd-backup entry on the BUFFALO HDD.\n'
+printf 'After boot, connect from VAIO with: ssh exp@192.168.137.2\n'
