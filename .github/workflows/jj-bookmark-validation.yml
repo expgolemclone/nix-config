@@ -1,0 +1,63 @@
+name: Jujutsu bookmark validation
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  jj-bookmarks:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6.0.2
+        with:
+          fetch-depth: 0
+
+      - uses: DeterminateSystems/determinate-nix-action@v3.21.0
+
+      - name: Run jj bookmark list and enforce main only
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --prune origin '+refs/heads/*:refs/remotes/origin/*'
+          nix shell nixpkgs#jujutsu --command bash -euo pipefail -c '
+            jj git init --colocate .
+            jj git import
+            jj bookmark list --all-remotes | tee /tmp/jj-bookmark-list.txt
+
+            mapfile -t remote_refs < <(
+              git for-each-ref --format="%(refname:strip=3)" refs/remotes/origin \
+                | grep -v "^HEAD$" \
+                | sort
+            )
+            printf "remote refs:\n"
+            printf "- %s\n" "${remote_refs[@]}"
+
+            [ "${#remote_refs[@]}" -eq 1 ]
+            [ "${remote_refs[0]}" = main ]
+            grep -Eq "(^|[[:space:]])main(@origin)?(:|[[:space:]])" /tmp/jj-bookmark-list.txt
+          '
+
+      - name: Record successful bookmark status
+        if: success()
+        run: |
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=success \
+            -f context=jj-bookmark-list \
+            -f description='jj bookmark list verified only main locally and remotely'
+
+      - name: Record failed bookmark status
+        if: failure()
+        run: |
+          gh api --method POST \
+            "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state=failure \
+            -f context=jj-bookmark-list \
+            -f description='jj bookmark list found an invalid bookmark state'
